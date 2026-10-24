@@ -64,11 +64,42 @@ def test_a_failed_cycle_is_logged_and_the_loop_continues(
 ) -> None:
     stop = threading.Event()
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.WARNING):
         run_forever(stop_after(2, stop, fail=True), error_wait_seconds=0, stop=stop)
 
     assert "down on call 1" in caplog.text
     assert "down on call 2" in caplog.text
+
+
+def test_failures_log_an_error_once_then_warnings_then_recovery(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    stop = threading.Event()
+    results: list[bool] = [False, False, True, True]
+
+    def cycle() -> float:
+        ok = results.pop(0)
+        if not results:
+            stop.set()
+        if not ok:
+            msg = "secondary down"
+            raise TechnitiumError(msg)
+        return 0
+
+    with caplog.at_level(logging.INFO):
+        run_forever(cycle, error_wait_seconds=0, stop=stop)
+
+    assert [record.levelname for record in caplog.records] == ["ERROR", "WARNING", "INFO"]
+    assert not any(record.exc_info for record in caplog.records)
+
+
+def test_debug_logging_adds_the_traceback(caplog: pytest.LogCaptureFixture) -> None:
+    stop = threading.Event()
+
+    with caplog.at_level(logging.DEBUG):
+        run_forever(stop_after(1, stop, fail=True), error_wait_seconds=0, stop=stop)
+
+    assert caplog.records[0].exc_info
 
 
 def test_an_unexpected_error_stops_the_loop() -> None:

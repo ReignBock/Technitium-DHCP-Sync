@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from technitium_dhcp_sync.client import TechnitiumError
+from technitium_dhcp_sync.client import TechnitiumAuthError, TechnitiumError
 from technitium_dhcp_sync.config import SyncSettings
 from technitium_dhcp_sync.models import Scope
 from technitium_dhcp_sync.planner import LEASE_COMMENT, DeleteScope, EnableScope, SetScope
@@ -52,12 +52,14 @@ def sync(primary: FakeTechnitium, secondary: FakeTechnitium) -> CycleResult:
         return run_cycle(p, s, SETTINGS, now=NOW)
 
 
-def secondary_lease(expires: datetime, scope: str = "Lab") -> dict[str, Any]:
+def secondary_lease(
+    expires: datetime, scope: str = "Lab", kind: str = "Reserved", address: str = "10.0.0.150"
+) -> dict[str, Any]:
     return {
         "scope": scope,
-        "type": "Reserved",
+        "type": kind,
         "hardwareAddress": "00-00-00-00-00-0A",
-        "address": "10.0.0.150",
+        "address": address,
         "leaseExpires": expires.isoformat(),
     }
 
@@ -179,6 +181,49 @@ def test_one_failed_action_does_not_stop_the_others(
     assert "Default" in caplog.text
 
 
+def test_a_primary_with_no_scopes_does_not_empty_the_secondary(
+    secondary: FakeTechnitium, caplog: pytest.LogCaptureFixture
+) -> None:
+    secondary.add_scope(MINIMAL_SCOPE)
+
+    with caplog.at_level(logging.ERROR):
+        result = sync(FakeTechnitium(), secondary)
+
+    assert secondary.writes == []
+    assert len(result.failures) == 1
+    assert "allow_empty_primary" in result.failures[0]
+    assert "allow_empty_primary" in caplog.text
+
+
+def test_allow_empty_primary_lets_the_secondary_be_emptied(secondary: FakeTechnitium) -> None:
+    secondary.add_scope(MINIMAL_SCOPE)
+    settings = SyncSettings(allow_empty_primary=True)
+
+    with FakeTechnitium().client() as p, secondary.client() as s:
+        result = run_cycle(p, s, settings, now=NOW)
+
+    assert secondary.writes == [("delete", "Lab")]
+    assert result.failures == ()
+
+
+def test_two_empty_servers_are_in_sync(secondary: FakeTechnitium) -> None:
+    assert sync(FakeTechnitium(), secondary).failures == ()
+
+
+def test_a_rejected_primary_token_is_not_a_primary_outage(
+    primary: FakeTechnitium, secondary: FakeTechnitium
+) -> None:
+    with (
+        primary.client(token="wrong") as p,  # ruff: ignore[hardcoded-password-func-arg]
+        secondary.client() as s,
+        pytest.raises(TechnitiumAuthError) as error,
+    ):
+        run_cycle(p, s, SETTINGS, now=NOW)
+
+    assert not isinstance(error.value, PrimaryUnreachableError)
+    assert secondary.writes == []
+
+
 # Holds
 
 
@@ -211,6 +256,18 @@ def test_a_hold_ends_once_the_last_lease_is_past_the_margin(
 
     assert secondary.writes == [("enable", "Lab")]
     assert result.holds == {}
+
+
+def test_the_result_lists_dynamic_secondary_leases_the_primary_does_not_know(
+    primary: FakeTechnitium, secondary: FakeTechnitium
+) -> None:
+    secondary.leases.append(
+        secondary_lease(NOW + timedelta(minutes=3), kind="Dynamic", address="10.0.0.120")
+    )
+
+    result = sync(primary, secondary)
+
+    assert [lease.address for lease in result.outage_leases] == ["10.0.0.120"]
 
 
 def test_the_result_reports_the_primary_enabled_flags(
@@ -310,3 +367,67 @@ def test_an_outage_with_the_secondary_also_down_still_checks_sooner(
 
     assert outcome.wait_seconds == SETTINGS.down_check_interval_seconds
     assert "cannot end holds" in caplog.text
+
+
+def test_a_rejected_primary_token_leaves_holds_in_place(
+    primary: FakeTechnitium, secondary: FakeTechnitium
+) -> None:
+    secondary.add_scope(MINIMAL_SCOPE, enabled=False)
+    secondary.leases.append(secondary_lease(NOW + timedelta(minutes=3)))
+    syncer = Syncer(
+        primary.client(token="wrong"),  # ruff: ignore[hardcoded-password-func-arg]
+        secondary.client(),
+        SETTINGS,
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(TechnitiumAuthError):
+        syncer.cycle()
+
+    assert secondary.writes == []
+
+
+def test_an_outage_logs_an_error_once_then_warnings_then_recovery(
+    primary: FakeTechnitium, secondary: FakeTechnitium, caplog: pytest.LogCaptureFixture
+) -> None:
+    times = iter([NOW, NOW + timedelta(seconds=10), NOW + timedelta(seconds=95)])
+    syncer = Syncer(primary.client(), secondary.client(), SETTINGS, clock=lambda: next(times))
+    primary.reachable = False
+
+    with caplog.at_level(logging.INFO):
+        syncer.cycle()
+        syncer.cycle()
+        primary.reachable = True
+        syncer.cycle()
+
+    outage = [
+        (record.levelname, record.getMessage())
+        for record in caplog.records
+        if "primary" in record.getMessage() and "reach" in record.getMessage()
+    ]
+    assert [level for level, _ in outage] == ["ERROR", "WARNING", "INFO"]
+    assert "still unreachable" in outage[1][1]
+    assert "0:01:35" in outage[2][1]
+    assert not any(record.exc_info for record in caplog.records)
+
+
+def test_each_outage_lease_is_logged_once(
+    primary: FakeTechnitium, secondary: FakeTechnitium, caplog: pytest.LogCaptureFixture
+) -> None:
+    syncer = make_syncer(primary, secondary)
+    secondary.leases.append(
+        secondary_lease(NOW + timedelta(minutes=3), kind="Dynamic", address="10.0.0.120")
+    )
+
+    with caplog.at_level(logging.WARNING):
+        syncer.cycle()
+        syncer.cycle()
+        secondary.leases.append(
+            secondary_lease(NOW + timedelta(minutes=3), kind="Dynamic", address="10.0.0.121")
+        )
+        syncer.cycle()
+
+    warned = [record.getMessage() for record in caplog.records if "unknown" in record.getMessage()]
+    assert len(warned) == 2
+    assert "10.0.0.120" in warned[0]
+    assert "10.0.0.121" in warned[1]

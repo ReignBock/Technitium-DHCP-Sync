@@ -8,7 +8,7 @@ fail, and they rebind to the primary. Everything here is pure, like the planner.
 from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta
 
-from .models import Lease
+from .models import Lease, LeaseType
 
 
 def scope_holds(
@@ -49,4 +49,26 @@ def scopes_to_enable(
         name
         for name, enabled in secondary_enabled.items()
         if not enabled and last_primary_enabled.get(name, name in holds)
+    ]
+
+
+def outage_leases(
+    secondary_leases: Iterable[Lease], primary_leases: Iterable[Lease], *, now: datetime
+) -> list[Lease]:
+    """Find active dynamic leases the secondary handed out at addresses the primary does not list.
+
+    Every primary lease reaches the secondary as a reservation, so a dynamic secondary lease
+    comes from an outage. Until it expires, the primary can hand the same address to another
+    client.
+
+    Returns:
+        The leases, in the secondary's order.
+    """
+    known = {lease.address for lease in primary_leases}
+    return [
+        lease
+        for lease in secondary_leases
+        if lease.type is LeaseType.DYNAMIC
+        and lease.lease_expires > now
+        and lease.address not in known
     ]

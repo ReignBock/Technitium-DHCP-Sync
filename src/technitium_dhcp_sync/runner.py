@@ -16,16 +16,33 @@ def run_forever(
 ) -> None:
     """Call ``cycle`` until ``stop`` is set, waiting as long as each call returns.
 
-    A ``TechnitiumError`` means a server was down or refused a call. It is logged, and the
-    loop tries again after ``error_wait_seconds``. Any other exception is a bug and ends the
-    loop.
+    A ``TechnitiumError`` means a server was down or refused a call. The loop tries again
+    after ``error_wait_seconds``. The first failure in a row logs an error, later ones a
+    warning, and the next success logs once. Tracebacks appear only at DEBUG level. Any other
+    exception is a bug and ends the loop.
     """
+    failing = False
     while not stop.is_set():
         try:
             wait = cycle()
-        except TechnitiumError:
-            logger.exception("sync cycle failed; retrying in %s seconds", error_wait_seconds)
+        except TechnitiumError as error:
+            traceback = logger.isEnabledFor(logging.DEBUG)
+            if failing:
+                logger.warning("sync cycle failed again: %s", error, exc_info=traceback)
+            else:
+                # The traceback is added at DEBUG level only, through exc_info.
+                logger.error(  # ruff: ignore[error-instead-of-exception]
+                    "sync cycle failed; retrying every %s seconds: %s",
+                    error_wait_seconds,
+                    error,
+                    exc_info=traceback,
+                )
+            failing = True
             wait = error_wait_seconds
+        else:
+            if failing:
+                logger.info("sync cycle succeeded again")
+            failing = False
         stop.wait(wait)
 
 

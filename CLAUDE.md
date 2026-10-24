@@ -20,7 +20,8 @@ uv run pytest -m integration --no-cov    # needs Docker
 ## Layout
 
 `models` (API payloads) -> `client` (HTTP) -> `planner` (pure diff) and `failback` (pure hold rules) ->
-`sync` (cycles and outage handling) -> `runner` (loop) -> `cli`. `config` loads the TOML. `tests/fakes.py` is an in-memory Technitium API for unit tests.
+`sync` (cycles and outage handling) -> `runner` (loop) -> `cli`. `config` loads the TOML. `health` writes and
+checks the heartbeat file behind the Docker health check. `tests/fakes.py` is an in-memory Technitium API for unit tests.
 
 ## Technitium API facts (confirmed on 15.6.0)
 
@@ -29,6 +30,8 @@ uv run pytest -m integration --no-cov    # needs Docker
 - `scopes/get` omits empty fields instead of returning null. A reservation with no host name comes back
   with `hostName: ""`.
 - A fresh install has a disabled `Default` scope (192.168.1.0/24).
+- A bad or missing token gets HTTP 200 with `status: "invalid-token"`.
+- `scopes/set` refuses a scope whose address range overlaps an existing scope.
 - Locally administered MACs (0x02 bit set) can be blocked by `blockLocallyAdministeredMacAddresses`.
 - A client renews by unicast with the server that issued its lease; offer delay does not apply. An
   enabled secondary scope approves those renewals even with the primary up.

@@ -17,6 +17,10 @@ class TechnitiumError(Exception):
     """A call failed: the server was unreachable, refused the call, or replied in a bad shape."""
 
 
+class TechnitiumAuthError(TechnitiumError):
+    """The server rejected the API token. The server is up; the settings need fixing."""
+
+
 class TechnitiumClient:
     """Calls one Technitium server's DHCP API.
 
@@ -133,6 +137,9 @@ class TechnitiumClient:
             msg = f"{where}: reply is not a JSON object"
             raise TechnitiumError(msg)
         status = payload.get("status")
+        if status == "invalid-token":
+            msg = f"{where}: the server rejected the API token; check its token_env variable"
+            raise TechnitiumAuthError(msg)
         if status != "ok":
             msg = f"{where}: {status}: {payload.get('errorMessage')}"
             raise TechnitiumError(msg)

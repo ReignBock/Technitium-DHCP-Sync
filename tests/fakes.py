@@ -69,10 +69,10 @@ class FakeTechnitium:
         self.scopes[scope["name"]] = dict(scope)
         self.enabled[scope["name"]] = enabled
 
-    def client(self) -> TechnitiumClient:
-        """Return a client wired to this fake."""
+    def client(self, token: str = TOKEN) -> TechnitiumClient:
+        """Return a client wired to this fake, sending ``token``."""
         return TechnitiumClient(
-            "http://fake.test:5380", TOKEN, transport=httpx.MockTransport(self.handle)
+            "http://fake.test:5380", token, transport=httpx.MockTransport(self.handle)
         )
 
     def handle(self, request: httpx.Request) -> httpx.Response:

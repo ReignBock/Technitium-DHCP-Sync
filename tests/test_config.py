@@ -35,6 +35,8 @@ def test_minimal_file_uses_the_documented_defaults(tmp_path: Path) -> None:
     assert settings.sync.log_level == "INFO"
     assert settings.sync.down_check_interval_seconds == 10
     assert settings.sync.failback_margin_seconds == 60
+    assert settings.sync.health_max_age_seconds == 180
+    assert settings.sync.allow_empty_primary is False
     assert settings.primary.verify_tls is True
     assert settings.primary.timeout_seconds == 10
 
@@ -61,6 +63,8 @@ secondary_lease_time_minutes = 2
 log_level = "DEBUG"
 down_check_interval_seconds = 4
 failback_margin_seconds = 0
+health_max_age_seconds = 50
+allow_empty_primary = true
 
 [primary]
 url = "https://dns1.example.com:53443"
@@ -81,8 +85,16 @@ token_env = "SECONDARY_TOKEN"
     assert settings.sync.log_level == "DEBUG"
     assert settings.sync.down_check_interval_seconds == 4
     assert settings.sync.failback_margin_seconds == 0
+    assert settings.sync.health_max_age_seconds == 50
+    assert settings.sync.allow_empty_primary is True
     assert settings.primary.verify_tls is False
     assert settings.primary.timeout_seconds == 3
+
+
+def test_health_max_age_defaults_to_three_intervals(tmp_path: Path) -> None:
+    settings = load_settings(write(tmp_path, f"{MINIMAL}[sync]\ninterval_seconds = 20\n"), ENVIRON)
+
+    assert settings.sync.health_max_age_seconds == 60
 
 
 def test_missing_environment_variable_names_the_variable(tmp_path: Path) -> None:
@@ -123,6 +135,7 @@ def test_unknown_keys_are_rejected(tmp_path: Path) -> None:
         'log_level = "LOUD"',
         "down_check_interval_seconds = 0",
         "failback_margin_seconds = -1",
+        "health_max_age_seconds = 0",
     ],
 )
 def test_out_of_range_values_are_rejected(tmp_path: Path, sync_table: str) -> None:
