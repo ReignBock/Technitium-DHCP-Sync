@@ -23,6 +23,9 @@
             uv
             (mdformat.withPlugins (p: [ p.mdformat-gfm ]))
             gh
+            # From nixpkgs, not PyPI: the PyPI binary needs nix-ld. Mypy stays in uv because
+            # the nixpkgs package puts its own site-packages on PYTHONPATH.
+            ruff
           ];
 
           shellHook = ''
@@ -30,6 +33,11 @@
 
             uv -q sync
             source ./.venv/bin/activate
+
+            pinned_ruff=$(sed -n 's/^lint = \["ruff==\(.*\)"\]$/\1/p' pyproject.toml)
+            if [ "$(ruff --version)" != "ruff $pinned_ruff" ]; then
+              echo "warning: $(ruff --version) differs from the CI pin ruff==$pinned_ruff in pyproject.toml" >&2
+            fi
           '';
         };
       }
