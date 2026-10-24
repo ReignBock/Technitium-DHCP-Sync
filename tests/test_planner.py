@@ -12,6 +12,7 @@ from technitium_dhcp_sync.planner import (
     DisableScope,
     EnableScope,
     ScopeState,
+    SecondaryOverrides,
     SetScope,
     desired_scope,
     plan,
@@ -20,8 +21,7 @@ from technitium_dhcp_sync.planner import (
 from .test_models import DOC_SCOPE, MINIMAL_SCOPE
 
 EXPIRES = datetime(2026, 10, 24, 15, 0, tzinfo=UTC)
-INCREMENT_MS = 2000
-LEASE_MINUTES = 5
+OVERRIDES = SecondaryOverrides(offer_delay_increment_ms=2000, lease_time_minutes=5)
 
 
 def scope(base: dict[str, Any] = MINIMAL_SCOPE, **fields: object) -> Scope:
@@ -40,26 +40,22 @@ def dynamic(mac: str, address: str, scope_name: str = "Lab", host: str | None = 
 
 
 def desired(primary: Scope, leases: tuple[Lease, ...] = ()) -> Scope:
-    return desired_scope(
-        primary,
-        leases,
-        offer_delay_increment_ms=INCREMENT_MS,
-        lease_time_minutes=LEASE_MINUTES,
-    )
+    return desired_scope(primary, leases, OVERRIDES)
 
 
 def run_plan(
     primary: dict[str, ScopeState],
     secondary: dict[str, ScopeState],
     leases: tuple[Lease, ...] = (),
+    held: frozenset[str] = frozenset(),
 ) -> list[object]:
     return list(
         plan(
             primary,
             secondary,
             leases,
-            offer_delay_increment_ms=INCREMENT_MS,
-            lease_time_minutes=LEASE_MINUTES,
+            held=held,
+            overrides=OVERRIDES,
         )
     )
 
@@ -90,7 +86,7 @@ def test_desired_scope_copies_every_field_except_the_overrides() -> None:
 def test_lease_time_is_split_into_days_hours_and_minutes(
     minutes: int, expected: tuple[int, int, int]
 ) -> None:
-    result = desired_scope(scope(), (), offer_delay_increment_ms=0, lease_time_minutes=minutes)
+    result = desired_scope(scope(), (), SecondaryOverrides(0, minutes))
 
     assert (result.lease_time_days, result.lease_time_hours, result.lease_time_minutes) == expected
 
@@ -242,3 +238,25 @@ def test_an_empty_primary_deletes_everything_on_the_secondary() -> None:
     }
 
     assert run_plan({}, secondary) == [DeleteScope("A"), DeleteScope("B")]
+
+
+def test_a_held_scope_is_disabled_even_though_the_primary_has_it_enabled() -> None:
+    primary = {"Lab": ScopeState(scope(), enabled=True)}
+    secondary = {"Lab": ScopeState(desired(scope()), enabled=True)}
+
+    assert run_plan(primary, secondary, held=frozenset({"Lab"})) == [DisableScope("Lab")]
+
+
+def test_a_held_scope_stays_disabled_and_is_still_kept_up_to_date() -> None:
+    primary = {"Lab": ScopeState(scope(router_address="10.0.0.1"), enabled=True)}
+    secondary = {"Lab": ScopeState(desired(scope()), enabled=False)}
+
+    assert run_plan(primary, secondary, held=frozenset({"Lab"})) == [
+        SetScope(desired(scope(router_address="10.0.0.1")))
+    ]
+
+
+def test_a_new_held_scope_is_created_but_not_enabled() -> None:
+    primary = {"Lab": ScopeState(scope(), enabled=True)}
+
+    assert run_plan(primary, {}, held=frozenset({"Lab"})) == [SetScope(desired(scope()))]

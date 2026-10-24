@@ -3,7 +3,7 @@
 Everything here is pure: no I/O, so the sync rules can be tested in isolation.
 """
 
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Collection, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 
 from .models import Lease, LeaseType, ReservedLease, Scope
@@ -53,28 +53,31 @@ class DeleteScope:
 type Action = SetScope | EnableScope | DisableScope | DeleteScope
 
 
-def desired_scope(
-    primary: Scope,
-    leases: Iterable[Lease],
-    *,
-    offer_delay_increment_ms: int,
-    lease_time_minutes: int,
-) -> Scope:
+@dataclass(frozen=True)
+class SecondaryOverrides:
+    """The settings where a secondary scope differs from its primary scope."""
+
+    offer_delay_increment_ms: int
+    lease_time_minutes: int
+
+
+def desired_scope(primary: Scope, leases: Iterable[Lease], overrides: SecondaryOverrides) -> Scope:
     """Build the secondary's copy of a primary scope.
 
     The copy matches the primary except for three fields. The offer delay grows by
-    ``offer_delay_increment_ms``, so the primary answers first while it is up. The lease time is
-    ``lease_time_minutes``, so clients return to the primary soon after it recovers. Each dynamic
-    lease in the scope becomes a reservation, since the API cannot create dynamic leases.
+    ``overrides.offer_delay_increment_ms``, so the primary answers first while it is up. The
+    lease time is ``overrides.lease_time_minutes``, which bounds how long a client stays on the
+    secondary once its scope is on hold. Each dynamic lease in the scope becomes a reservation,
+    since the API cannot create dynamic leases.
 
     Returns:
         The scope the secondary should hold.
     """
-    days, rest = divmod(lease_time_minutes, _MINUTES_PER_DAY)
+    days, rest = divmod(overrides.lease_time_minutes, _MINUTES_PER_DAY)
     hours, minutes = divmod(rest, _MINUTES_PER_HOUR)
     return primary.model_copy(
         update={
-            "offer_delay_time": primary.offer_delay_time + offer_delay_increment_ms,
+            "offer_delay_time": primary.offer_delay_time + overrides.offer_delay_increment_ms,
             "lease_time_days": days,
             "lease_time_hours": hours,
             "lease_time_minutes": minutes,
@@ -113,13 +116,15 @@ def plan(
     secondary: Mapping[str, ScopeState],
     leases: Iterable[Lease],
     *,
-    offer_delay_increment_ms: int,
-    lease_time_minutes: int,
+    held: Collection[str],
+    overrides: SecondaryOverrides,
 ) -> Iterator[Action]:
     """List the calls that make the secondary match the primary.
 
     Deletes come first, so a renamed scope never overlaps its old copy. Then each primary scope
-    is written only if it differs, and its enabled flag is corrected only if it differs.
+    is written only if it differs, and its enabled flag is corrected only if it differs. A scope
+    in ``held`` stays disabled on the secondary whatever the primary's flag says, so its clients
+    move back to the primary. Its configuration is still kept up to date.
 
     Yields:
         The actions, in the order to apply them.
@@ -129,17 +134,13 @@ def plan(
         if name not in primary:
             yield DeleteScope(name)
     for name, state in primary.items():
-        target = desired_scope(
-            state.scope,
-            leases,
-            offer_delay_increment_ms=offer_delay_increment_ms,
-            lease_time_minutes=lease_time_minutes,
-        )
+        target = desired_scope(state.scope, leases, overrides)
         current = secondary.get(name)
         if current is None or current.scope != target:
             yield SetScope(target)
         current_enabled = current is not None and current.enabled
-        if state.enabled and not current_enabled:
+        want_enabled = state.enabled and name not in held
+        if want_enabled and not current_enabled:
             yield EnableScope(name)
-        elif current_enabled and not state.enabled:
+        elif current_enabled and not want_enabled:
             yield DisableScope(name)

@@ -5,7 +5,15 @@ from dataclasses import dataclass
 
 from .client import TechnitiumClient, TechnitiumError
 from .config import SyncSettings
-from .planner import Action, DisableScope, EnableScope, ScopeState, SetScope, plan
+from .planner import (
+    Action,
+    DisableScope,
+    EnableScope,
+    ScopeState,
+    SecondaryOverrides,
+    SetScope,
+    plan,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +61,11 @@ def run_cycle(
         primary_state,
         secondary_state,
         leases,
-        offer_delay_increment_ms=settings.offer_delay_increment_ms,
-        lease_time_minutes=settings.secondary_lease_time_minutes,
+        held=(),
+        overrides=SecondaryOverrides(
+            offer_delay_increment_ms=settings.offer_delay_increment_ms,
+            lease_time_minutes=settings.secondary_lease_time_minutes,
+        ),
     ):
         name = _scope_name(action)
         if name in failed_scopes:
