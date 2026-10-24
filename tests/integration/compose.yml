@@ -1,0 +1,47 @@
+# Two Technitium servers and a DHCP client on one bridge network.
+# Docker assigns container addresses only from ip_range (.0-.31), so the DHCP pool (.100-.200)
+# never collides with them.
+name: technitium-dhcp-sync-it
+
+networks:
+  dhcpnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          ip_range: 172.30.0.0/27
+          gateway: 172.30.0.1
+
+x-technitium: &technitium
+  image: technitium/dns-server:15.6.0
+  restart: "no"
+
+services:
+  primary:
+    <<: *technitium
+    environment:
+      DNS_SERVER_DOMAIN: primary.test
+      DNS_SERVER_ADMIN_PASSWORD: integration-password
+    ports: ["127.0.0.1:15380:5380"]
+    networks:
+      dhcpnet: {ipv4_address: 172.30.0.10}
+
+  secondary:
+    <<: *technitium
+    environment:
+      DNS_SERVER_DOMAIN: secondary.test
+      DNS_SERVER_ADMIN_PASSWORD: integration-password
+    ports: ["127.0.0.1:25380:5380"]
+    networks:
+      dhcpnet: {ipv4_address: 172.30.0.11}
+
+  client:
+    image: alpine:3.24.2
+    command: ["sleep", "infinity"]
+    cap_add: [NET_ADMIN, NET_RAW]
+    # A universally administered MAC; Technitium can block locally administered ones.
+    mac_address: "00:16:3e:1e:00:99"
+    volumes:
+      - ./print-lease.sh:/usr/local/bin/print-lease:ro
+    networks:
+      dhcpnet: {ipv4_address: 172.30.0.20}
