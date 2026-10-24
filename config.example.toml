@@ -8,6 +8,9 @@ secondary_lease_time_minutes = 5   # lease time of every secondary scope
 log_level = "INFO"                 # DEBUG, INFO, WARNING, or ERROR
 down_check_interval_seconds = 10   # time between checks while the primary is unreachable
 failback_margin_seconds = 60       # a hold lasts this long past the last active secondary lease
+health_max_age_seconds = 180       # health check fails after this long without a healthy cycle
+                                   # (default: 3 x interval_seconds)
+allow_empty_primary = false        # true lets a primary with no scopes empty the secondary
 
 [primary]
 url = "https://dns1.example.com:53443"

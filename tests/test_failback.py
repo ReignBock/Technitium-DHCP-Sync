@@ -2,19 +2,24 @@
 
 from datetime import UTC, datetime, timedelta
 
-from technitium_dhcp_sync.failback import scope_holds, scopes_to_enable
+from technitium_dhcp_sync.failback import outage_leases, scope_holds, scopes_to_enable
 from technitium_dhcp_sync.models import Lease, LeaseType
 
 NOW = datetime(2026, 10, 24, 14, 0, tzinfo=UTC)
 MARGIN = timedelta(seconds=60)
 
 
-def lease(scope: str, expires: datetime, kind: LeaseType = LeaseType.DYNAMIC) -> Lease:
+def lease(
+    scope: str,
+    expires: datetime,
+    kind: LeaseType = LeaseType.DYNAMIC,
+    address: str = "10.0.0.150",
+) -> Lease:
     return Lease(
         scope=scope,
         type=kind,
         hardware_address="00-00-00-00-00-0A",
-        address="10.0.0.150",
+        address=address,
         lease_expires=expires,
     )
 
@@ -84,3 +89,30 @@ def test_without_a_known_primary_state_held_scopes_are_enabled() -> None:
     secondary = {"Held": False, "Off": False}
 
     assert scopes_to_enable(secondary, {}, holds={"Held": NOW}) == ["Held"]
+
+
+# outage_leases
+
+LATER = NOW + timedelta(minutes=3)
+
+
+def test_a_secondary_lease_the_primary_does_not_know_is_reported() -> None:
+    stray = lease("Lab", LATER, address="10.0.0.120")
+
+    assert outage_leases([stray], [lease("Lab", LATER)], now=NOW) == [stray]
+
+
+def test_a_secondary_lease_at_an_address_the_primary_lists_is_not_reported() -> None:
+    assert outage_leases([lease("Lab", LATER)], [lease("Lab", LATER)], now=NOW) == []
+
+
+def test_reserved_secondary_leases_are_not_reported() -> None:
+    reserved = lease("Lab", LATER, LeaseType.RESERVED, address="10.0.0.120")
+
+    assert outage_leases([reserved], [], now=NOW) == []
+
+
+def test_expired_secondary_leases_are_not_reported() -> None:
+    expired = lease("Lab", NOW - timedelta(seconds=1), address="10.0.0.120")
+
+    assert outage_leases([expired], [], now=NOW) == []

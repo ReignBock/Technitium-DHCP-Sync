@@ -7,9 +7,10 @@ from datetime import UTC, datetime, timedelta
 from types import TracebackType
 from typing import Self
 
-from .client import TechnitiumClient, TechnitiumError
+from .client import TechnitiumAuthError, TechnitiumClient, TechnitiumError
 from .config import SyncSettings
-from .failback import scope_holds, scopes_to_enable
+from .failback import outage_leases, scope_holds, scopes_to_enable
+from .models import Lease
 from .planner import (
     Action,
     DisableScope,
@@ -35,6 +36,7 @@ class CycleResult:
     failures: tuple[str, ...]
     primary_enabled: Mapping[str, bool] = field(default_factory=dict)
     holds: Mapping[str, datetime] = field(default_factory=dict)
+    outage_leases: tuple[Lease, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -71,23 +73,41 @@ def run_cycle(
     """Make the secondary match the primary, holding off scopes whose clients must move back.
 
     All reads happen before any write. If a primary read fails, ``PrimaryUnreachableError``
-    propagates and the secondary stays as it was. A failed secondary read raises
+    propagates and the secondary stays as it was. A rejected primary token raises
+    ``TechnitiumAuthError`` instead, since the primary is up. A failed secondary read raises
     ``TechnitiumError``. A failed write is logged and skips the remaining actions for that
     scope only.
 
+    A primary with no scopes would empty the secondary. Unless ``allow_empty_primary`` is set,
+    the cycle refuses that, writes nothing, and reports a failure.
+
     Returns:
-        The actions applied, the failures seen, the primary's enabled flags, and the holds.
+        The actions applied, the failures seen, the primary's enabled flags, the holds, and the
+        outage leases.
 
     Raises:
         PrimaryUnreachableError: A read from the primary failed.
+        TechnitiumAuthError: The primary rejected the API token.
     """
     try:
         primary_state = read_state(primary)
         leases = primary.list_leases()
+    except TechnitiumAuthError:
+        raise
     except TechnitiumError as error:
         raise PrimaryUnreachableError(str(error)) from error
     secondary_state = read_state(secondary)
-    holds = scope_holds(secondary.list_leases(), now=now, margin=_margin(settings))
+    secondary_leases = secondary.list_leases()
+    holds = scope_holds(secondary_leases, now=now, margin=_margin(settings))
+    strays = tuple(outage_leases(secondary_leases, leases, now=now))
+
+    if not primary_state and secondary_state and not settings.allow_empty_primary:
+        message = (
+            f"the primary has no scopes; refusing to delete all {len(secondary_state)} "
+            "secondary scopes (set allow_empty_primary to allow this)"
+        )
+        logger.error("sync failed: %s", message)
+        return CycleResult(actions=(), failures=(message,), holds=holds, outage_leases=strays)
 
     for name, until in holds.items():
         current = secondary_state.get(name)
@@ -133,6 +153,7 @@ def run_cycle(
         failures=tuple(failures),
         primary_enabled={name: state.enabled for name, state in primary_state.items()},
         holds=holds,
+        outage_leases=strays,
     )
 
 
@@ -181,6 +202,8 @@ class Syncer:
         self._settings = settings
         self._clock = clock
         self._last_primary_enabled: dict[str, bool] = {}
+        self._outage_since: datetime | None = None
+        self._reported_leases: set[tuple[str, str]] = set()
 
     def __enter__(self) -> Self:
         """Return the syncer itself.
@@ -204,8 +227,9 @@ class Syncer:
         """Run one cycle.
 
         While the primary is unreachable, held scopes are enabled at once, and the next check
-        comes after ``down_check_interval_seconds`` instead of ``interval_seconds``. A failed
-        secondary read raises ``TechnitiumError`` for the caller to retry.
+        comes after ``down_check_interval_seconds`` instead of ``interval_seconds``. The first
+        failed check logs an error, later ones a warning, and the recovery logs once. A failed
+        secondary read or a rejected token raises ``TechnitiumError`` for the caller to retry.
 
         Returns:
             Whether the cycle fully succeeded, and how long to wait before the next one.
@@ -214,14 +238,38 @@ class Syncer:
         try:
             result = run_cycle(self._primary, self._secondary, self._settings, now=now)
         except PrimaryUnreachableError as error:
-            logger.warning("primary unreachable: %s", error)
+            if self._outage_since is None:
+                self._outage_since = now
+                # The message already names the cause; a traceback would only add noise.
+                logger.error("primary unreachable: %s", error)  # ruff: ignore[error-instead-of-exception]
+            else:
+                logger.warning("primary still unreachable: %s", error)
             try:
                 release_holds(self._secondary, self._last_primary_enabled, self._settings, now=now)
-            except TechnitiumError:
-                logger.exception("cannot end holds on the secondary")
+            except TechnitiumError as secondary_error:
+                # The message already names the cause; a traceback would only add noise.
+                logger.error("cannot end holds on the secondary: %s", secondary_error)  # ruff: ignore[error-instead-of-exception]
             return CycleOutcome(ok=False, wait_seconds=self._settings.down_check_interval_seconds)
+        if self._outage_since is not None:
+            logger.info("primary reachable again after %s", now - self._outage_since)
+            self._outage_since = None
         self._last_primary_enabled = dict(result.primary_enabled)
+        self._report_outage_leases(result.outage_leases)
         return CycleOutcome(ok=not result.failures, wait_seconds=self._settings.interval_seconds)
+
+    def _report_outage_leases(self, leases: tuple[Lease, ...]) -> None:
+        keys = {(lease.hardware_address, lease.address) for lease in leases}
+        for lease in leases:
+            if (lease.hardware_address, lease.address) not in self._reported_leases:
+                logger.warning(
+                    "%s holds %s in %s from the secondary, unknown to the primary; the primary "
+                    "may hand it out again before %s unless the scope uses ping check",
+                    lease.hardware_address,
+                    lease.address,
+                    lease.scope,
+                    lease.lease_expires.isoformat(timespec="seconds"),
+                )
+        self._reported_leases = keys
 
 
 def _scope_name(action: Action) -> str:

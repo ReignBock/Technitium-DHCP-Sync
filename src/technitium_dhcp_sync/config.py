@@ -19,6 +19,7 @@ from pydantic import (
     SecretStr,
     ValidationError,
     ValidationInfo,
+    model_validator,
 )
 
 
@@ -65,6 +66,20 @@ class SyncSettings(_Section):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     down_check_interval_seconds: float = Field(default=10, gt=0)
     failback_margin_seconds: float = Field(default=60, ge=0)
+    health_max_age_seconds: float = Field(default=180, gt=0)
+    allow_empty_primary: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_health_max_age(cls, data: object) -> object:
+        # Without an explicit value, the health check allows three missed intervals.
+        if (
+            isinstance(data, dict)
+            and "health_max_age_seconds" not in data
+            and isinstance(interval := data.get("interval_seconds"), int | float)
+        ):
+            return {**data, "health_max_age_seconds": 3 * interval}
+        return data
 
     @property
     def offer_delay_increment_ms(self) -> int:

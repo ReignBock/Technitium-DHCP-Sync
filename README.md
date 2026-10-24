@@ -24,6 +24,9 @@ match:
 The sync writes to the secondary only when something differs. If any read from the primary fails, the
 cycle stops before it writes anything, so a primary outage never removes the failover copy.
 
+A primary that reports no scopes at all would empty the secondary. The sync refuses that cycle, writes
+nothing, and logs an error. Set `allow_empty_primary = true` to remove every secondary scope on purpose.
+
 ## Failback
 
 A short lease alone does not bring clients back to the primary. A client renews directly with the server
@@ -46,11 +49,34 @@ Holds are computed from the secondary's leases, so a restart does not end one ea
 flags from the last successful cycle are kept in memory only. After a restart during an outage, the sync
 enables the scopes that are on hold.
 
+## Health check and logs
+
+The image has a Docker health check. After each healthy cycle, the daemon writes a deadline to a heartbeat
+file: the current time plus `health_max_age_seconds` (default three times `interval_seconds`).
+`technitium-dhcp-sync --healthcheck` passes while that deadline lies in the future. It reads only the
+heartbeat file, so it needs no settings.
+
+A healthy cycle reached both servers and applied every change. These make the container unhealthy once the
+deadline passes:
+
+- the primary is unreachable, even while the secondary serves its clients
+- either server rejects its API token
+- the secondary is unreachable or refuses a change
+- the empty-primary refusal described above
+
+The container keeps running in each case and retries. A rejected token gets its own log message, which
+names the server. A rejected primary token does not count as a primary outage, so held scopes stay
+disabled.
+
+Repeated failures stay quiet. The first failure logs an error, each repeat logs a one-line warning, and the
+recovery logs once. With `log_level = "DEBUG"`, failures also log a traceback.
+
 ## Known limits
 
 - During an outage, the secondary can give new clients addresses the primary does not know about. When the
   primary returns, it may offer one of those addresses to another client. Turning on ping check in the
   primary scope reduces this risk. The sync copies that setting from the primary and does not change it.
+  After the primary returns, the sync logs a warning for each such secondary lease, once, with its expiry.
 - Technitium attaches a scope to the network interface that has an address in the scope's subnet. The
   secondary host needs an address in every subnet it serves.
 - Renaming a scope on the primary deletes the old scope on the secondary and creates the new one.
@@ -88,12 +114,15 @@ The container runs as uid 10001, so the settings file must be readable by that u
 
 Command-line options:
 
-| Option          | Effect                                                   |
-| --------------- | -------------------------------------------------------- |
-| `--config PATH` | Settings file. Default: `/config/config.toml`.           |
-| `--once`        | Run one sync cycle and exit, instead of looping forever. |
+| Option                  | Effect                                                                 |
+| ----------------------- | ---------------------------------------------------------------------- |
+| `--config PATH`         | Settings file. Default: `/config/config.toml`.                         |
+| `--once`                | Run one sync cycle and exit, instead of looping forever.               |
+| `--healthcheck`         | Exit `0` if the daemon had a healthy cycle recently, `1` if not.       |
+| `--heartbeat-file PATH` | Heartbeat file. Default: `/tmp/technitium-dhcp-sync.heartbeat`.        |
 
-Exit codes: `0` success, `1` a `--once` cycle failed, `2` the settings file is invalid.
+Exit codes: `0` success, `1` a `--once` cycle failed or `--healthcheck` found the sync unhealthy, `2` the
+settings file is invalid.
 
 ## Development
 

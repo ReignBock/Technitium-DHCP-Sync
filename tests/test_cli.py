@@ -4,6 +4,7 @@ import runpy
 import sys
 import threading
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ import pytest
 from technitium_dhcp_sync import cli
 from technitium_dhcp_sync.client import TechnitiumClient
 from technitium_dhcp_sync.config import ServerSettings
+from technitium_dhcp_sync.health import heartbeat_problem, write_heartbeat
 
 from .fakes import TOKEN, FakeTechnitium
 from .test_models import MINIMAL_SCOPE
@@ -84,9 +86,9 @@ def test_bad_config_exits_two_with_the_reason(capsys: pytest.CaptureFixture[str]
     assert "/nonexistent/config.toml" in capsys.readouterr().err
 
 
-def test_daemon_mode_loops_with_the_configured_interval(
-    servers: dict[str, FakeTechnitium], monkeypatch: pytest.MonkeyPatch
-) -> None:
+@pytest.fixture
+def daemon(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+    # Replace the loop with one cycle, and record what the CLI passed to it.
     seen: dict[str, object] = {}
 
     def fake_run_forever(
@@ -97,15 +99,75 @@ def test_daemon_mode_loops_with_the_configured_interval(
         seen["wait"] = cycle()
 
     installed: list[threading.Event] = []
+    seen["installed"] = installed
     monkeypatch.setattr(cli, "run_forever", fake_run_forever)
     monkeypatch.setattr(cli, "install_signal_handlers", installed.append)
+    return seen
 
-    assert cli.main(["--config", "config.toml"]) == 0
 
-    assert seen["error_wait"] == 30
-    assert seen["wait"] == 30
-    assert installed == [seen["stop"]]
+DAEMON_ARGS = ["--config", "config.toml", "--heartbeat-file", "heartbeat"]
+
+
+def test_daemon_mode_loops_with_the_configured_interval(
+    servers: dict[str, FakeTechnitium], daemon: dict[str, object]
+) -> None:
+    assert cli.main(DAEMON_ARGS) == 0
+
+    assert daemon["error_wait"] == 30
+    assert daemon["wait"] == 30
+    assert daemon["installed"] == [daemon["stop"]]
     assert "Lab" in servers["secondary.test"].scopes
+
+
+@pytest.mark.usefixtures("servers", "daemon")
+def test_a_healthy_daemon_cycle_writes_the_heartbeat() -> None:
+    before = datetime.now(UTC)
+
+    cli.main(DAEMON_ARGS)
+
+    # The settings give a 30 second interval, so the deadline is three intervals out.
+    assert heartbeat_problem(Path("heartbeat"), now=before + timedelta(seconds=89)) is None
+    assert heartbeat_problem(Path("heartbeat"), now=before + timedelta(seconds=91)) is not None
+
+
+@pytest.mark.usefixtures("daemon")
+def test_a_failed_daemon_cycle_writes_no_heartbeat(servers: dict[str, FakeTechnitium]) -> None:
+    servers["primary.test"].reachable = False
+
+    cli.main(DAEMON_ARGS)
+
+    assert not Path("heartbeat").exists()
+
+
+def test_once_writes_no_heartbeat(servers: dict[str, FakeTechnitium]) -> None:
+    cli.main([*DAEMON_ARGS, "--once"])
+
+    assert "Lab" in servers["secondary.test"].scopes
+    assert not Path("heartbeat").exists()
+
+
+def test_healthcheck_passes_with_a_fresh_heartbeat(tmp_path: Path) -> None:
+    path = tmp_path / "heartbeat"
+    write_heartbeat(path, datetime.now(UTC) + timedelta(minutes=1))
+
+    assert cli.main(["--healthcheck", "--heartbeat-file", str(path)]) == 0
+
+
+def test_healthcheck_fails_with_the_reason_and_needs_no_config(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    args = ["--config", "/nonexistent", "--healthcheck", "--heartbeat-file", str(tmp_path / "x")]
+
+    assert cli.main(args) == 1
+
+    assert "no healthy cycle" in capsys.readouterr().err
+
+
+def test_heartbeat_file_defaults_to_tmp() -> None:
+    # The container's only writable path is /tmp; the test pins that documented default.
+    assert cli.parse_args([]).heartbeat_file == Path(
+        "/tmp/technitium-dhcp-sync.heartbeat"  # ruff: ignore[hardcoded-temp-file]
+    )
 
 
 def test_config_path_defaults_to_the_container_location() -> None:

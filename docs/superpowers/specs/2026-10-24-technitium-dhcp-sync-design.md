@@ -147,3 +147,43 @@ succeeded.
 primary's DHCP service (for example a broken relay or VLAN), holds still apply, and clients on the
 secondary lose their leases. Probing DHCP itself would need raw sockets in the container and is
 left for later.
+
+## Operations (added 2026-10-24, after v0.2.0)
+
+### Health check
+
+- After each cycle with `ok` set, the daemon writes `now + health_max_age_seconds` to a heartbeat
+  file (`--heartbeat-file`, default `/tmp/technitium-dhcp-sync.heartbeat`). The file is replaced in
+  one step.
+- `--healthcheck` exits 0 while that deadline lies in the future. It reads no settings, so it works
+  whatever `--config` the container uses. The Dockerfile runs it as `HEALTHCHECK`.
+- A primary outage counts as unhealthy, even while failover works. Otherwise a moved primary URL
+  would look like an endless outage and stay hidden. Decided with the user.
+- `--once` writes no heartbeat.
+
+### Empty-primary guard
+
+A primary with no scopes and a secondary with at least one: the cycle writes nothing and reports a
+failure. `allow_empty_primary = true` turns the guard off.
+
+### Errors and logging
+
+- Technitium 15.6.0 answers a bad or missing token with HTTP 200 and `status: "invalid-token"`.
+  The client raises `TechnitiumAuthError`, a `TechnitiumError` subclass. A rejected primary token is
+  not a primary outage: holds stay in place, and the runner retries at the normal interval.
+- The syncer logs the first failed primary check as an error, repeats as one-line warnings, and the
+  recovery once with the outage length. The runner does the same for other failed cycles. Tracebacks
+  appear only at DEBUG level.
+
+### Outage leases
+
+After a successful cycle, the sync lists active dynamic secondary leases at addresses the primary
+does not list. Every primary lease reaches the secondary as a reservation, so these come from an
+outage. Each one is logged once as a warning, with its expiry.
+
+### New settings (`[sync]`)
+
+| Key | Default | Meaning |
+|---|---|---|
+| `health_max_age_seconds` | 3 x `interval_seconds` | How long the health check passes after a healthy cycle. |
+| `allow_empty_primary` | false | Let a primary with no scopes empty the secondary. |

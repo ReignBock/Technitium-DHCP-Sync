@@ -17,5 +17,7 @@ COPY --from=build /app/.venv /app/.venv
 ENV PATH=/app/.venv/bin:$PATH \
     PYTHONUNBUFFERED=1
 USER 10001
+# Passes while the daemon had a healthy cycle within health_max_age_seconds.
+HEALTHCHECK --start-period=60s CMD ["technitium-dhcp-sync", "--healthcheck"]
 ENTRYPOINT ["technitium-dhcp-sync"]
 CMD ["--config", "/config/config.toml"]

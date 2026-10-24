@@ -116,13 +116,17 @@ class Stack:
     secondary: Server
     config_path: Path
 
-    def run_sync(self) -> subprocess.CompletedProcess[str]:
+    def run_sync(self, primary_token: str | None = None) -> subprocess.CompletedProcess[str]:
         """Run one sync cycle as a separate process.
 
         With ``SYNC_IMAGE`` set, the cycle runs in that container image, so CI tests the image
         it ships. Otherwise it runs ``python -m technitium_dhcp_sync`` from this checkout.
+        ``primary_token`` replaces the primary's real token.
         """
-        tokens = {"PRIMARY_TOKEN": self.primary.token, "SECONDARY_TOKEN": self.secondary.token}
+        tokens = {
+            "PRIMARY_TOKEN": primary_token or self.primary.token,
+            "SECONDARY_TOKEN": self.secondary.token,
+        }
         image = os.environ.get("SYNC_IMAGE")
         if image:
             command = [

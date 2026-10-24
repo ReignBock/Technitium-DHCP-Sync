@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 
-from technitium_dhcp_sync.client import TechnitiumClient, TechnitiumError
+from technitium_dhcp_sync.client import TechnitiumAuthError, TechnitiumClient, TechnitiumError
 from technitium_dhcp_sync.config import ServerSettings
 from technitium_dhcp_sync.models import Lease, LeaseType, ReservedLease, Scope, ScopeSummary
 
@@ -100,9 +100,13 @@ def test_rejected_token_raises() -> None:
 
     with (
         TechnitiumClient("http://x", "t", transport=httpx.MockTransport(handler)) as client,
-        pytest.raises(TechnitiumError, match="invalid-token"),
+        pytest.raises(TechnitiumAuthError, match="rejected the API token"),
     ):
         client.list_scopes()
+
+
+def test_a_rejected_token_is_a_technitium_error() -> None:
+    assert issubclass(TechnitiumAuthError, TechnitiumError)
 
 
 def test_unreachable_server_raises(server: FakeTechnitium) -> None:

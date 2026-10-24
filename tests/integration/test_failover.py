@@ -141,11 +141,40 @@ def test_a_sync_with_the_primary_down_fails_and_changes_nothing(stack: Stack) ->
 
 def test_a_scope_deleted_on_the_primary_is_deleted_on_the_secondary(stack: Stack) -> None:
     create_lab(stack)
+    stack.primary.call(
+        "scopes/set",
+        name="Other",
+        startingAddress="10.99.0.100",
+        endingAddress="10.99.0.200",
+        subnetMask="255.255.255.0",
+    )
     assert_sync_ok(stack)
 
     stack.primary.call("scopes/delete", name="Lab")
     assert_sync_ok(stack)
 
+    assert stack.secondary.scope_names() == {"Other"}
+
+
+def test_a_primary_with_no_scopes_does_not_empty_the_secondary(stack: Stack) -> None:
+    create_lab(stack)
+    assert_sync_ok(stack)
+
+    stack.primary.call("scopes/delete", name="Lab")
+    result = stack.run_sync()
+
+    assert result.returncode == 1
+    assert "allow_empty_primary" in result.stderr
+    assert stack.secondary.scope_names() == {"Lab"}
+
+
+def test_a_rejected_primary_token_is_reported_as_such(stack: Stack) -> None:
+    create_lab(stack)
+
+    result = stack.run_sync(primary_token="not-a-real-token")  # ruff: ignore[hardcoded-password-func-arg]
+
+    assert result.returncode == 1
+    assert "rejected the API token" in result.stderr
     assert stack.secondary.scope_names() == set()
 
 
