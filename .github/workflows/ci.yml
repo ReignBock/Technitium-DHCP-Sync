@@ -44,3 +44,15 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.0
       - run: uv sync --locked
       - run: uv run pytest
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.3.0
+      - run: uv sync --locked
+      - run: docker compose -f tests/integration/compose.yml pull --quiet
+      - run: uv run pytest -m integration --no-cov
+      - if: failure()
+        run: docker compose -f tests/integration/compose.yml logs --no-color

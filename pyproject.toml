@@ -47,8 +47,13 @@ ignore = [
     "magic-value-comparison",       # literal values are the point of a test
     "import-private-name",          # tests may import private names
     "undocumented-public-function", # test names state the behavior under test
+    # Test helpers get one-line docstrings; full Returns/Raises/Yields sections add noise.
+    "docstring-missing-returns",
+    "docstring-missing-exception",
+    "docstring-missing-yields",
 ]
 "tests/integration/**" = [
+    "suspicious-subprocess-import",         # the tests drive docker compose
     "subprocess-without-shell-equals-true", # docker compose runs with fixed arguments
     "start-process-with-partial-path",      # docker is resolved from PATH
 ]
