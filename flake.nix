@@ -23,9 +23,6 @@
             uv
             (mdformat.withPlugins (p: [ p.mdformat-gfm ]))
             gh
-            # From nixpkgs, not PyPI: the PyPI binary needs nix-ld. Mypy stays in uv because
-            # the nixpkgs package puts its own site-packages on PYTHONPATH.
-            ruff
           ];
 
           shellHook = ''
@@ -34,9 +31,12 @@
             uv -q sync
             source ./.venv/bin/activate
 
-            pinned_ruff=$(sed -n 's/^lint = \["ruff==\(.*\)"\]$/\1/p' pyproject.toml)
-            if [ "$(ruff --version)" != "ruff $pinned_ruff" ]; then
-              echo "warning: $(ruff --version) differs from the CI pin ruff==$pinned_ruff in pyproject.toml" >&2
+            # The PyPI ruff binary needs nix-ld. Where it cannot run, link the nixpkgs build in
+            # its place, so `ruff` and `uv run ruff` both work. uv reinstalls the PyPI binary when
+            # the locked version changes, and this check runs again on the next shell entry.
+            if ! ./.venv/bin/ruff --version >/dev/null 2>&1; then
+              ln -sf ${pkgs.ruff}/bin/ruff ./.venv/bin/ruff
+              echo "PyPI ruff cannot run here; using $(ruff --version) from nixpkgs" >&2
             fi
           '';
         };
