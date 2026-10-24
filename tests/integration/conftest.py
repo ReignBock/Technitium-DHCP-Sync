@@ -19,6 +19,7 @@ CLIENT_MAC = "00-16-3E-1E-00-99"
 PRIMARY_IP = "172.30.0.10"
 SECONDARY_IP = "172.30.0.11"
 _LEASE_LINE = re.compile(r"ip=(?P<ip>\S+) lease=(?P<lease>\d+) serverid=(?P<server>\S+)")
+_EVENT_LINE = re.compile(r"^(?P<event>\w+) " + _LEASE_LINE.pattern + "$", re.MULTILINE)
 
 
 def compose(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -150,6 +151,75 @@ def request_lease() -> LeaseReply:
     match = _LEASE_LINE.search(result.stdout)
     assert match is not None, result.stdout + result.stderr
     return LeaseReply(match["ip"], int(match["lease"]), match["server"])
+
+
+@dataclass(frozen=True)
+class LeaseEvent:
+    """One bound or renew event from the long-running client."""
+
+    event: str
+    lease: LeaseReply
+
+
+EVENTS_FILE = "/var/log/dhcp-events"  # written by client-hook.sh inside the container
+
+
+@dataclass
+class BackgroundClient:
+    """A udhcpc that keeps running, renews, and configures its address like a real client."""
+
+    service: str = "client"
+
+    def start(self) -> None:
+        """Start the client with a clean event log."""
+        self._exec("sh", "-c", f"pkill udhcpc; rm -f {EVENTS_FILE}", check=False)
+        compose(
+            "exec", "-d", "-T", self.service,
+            "udhcpc", "-i", "eth0", "-f", "-t", "5", "-T", "2",
+            "-s", "/usr/local/bin/client-hook",
+        )  # fmt: skip
+
+    def stop(self) -> None:
+        """Stop the client and drop its leased address."""
+        self._exec(
+            "sh", "-c", "pkill udhcpc; ip -4 addr flush dev eth0 label eth0:dhcp", check=False
+        )
+
+    def renew(self) -> None:
+        """Make the client renew now instead of waiting for half its lease."""
+        self._exec("pkill", "-USR1", "udhcpc")
+
+    def events(self) -> list[LeaseEvent]:
+        """Return the bound and renew events so far, oldest first."""
+        result = self._exec("cat", EVENTS_FILE, check=False)
+        return [
+            LeaseEvent(m["event"], LeaseReply(m["ip"], int(m["lease"]), m["server"]))
+            for m in _EVENT_LINE.finditer(result.stdout)
+            if m["event"] in {"bound", "renew"}
+        ]
+
+    def _exec(self, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        return compose("exec", "-T", self.service, *args, check=check)
+
+    def wait_for_event(self, after: int, timeout: float = 30) -> LeaseEvent:
+        """Wait for the first event beyond the first ``after`` events, and return it."""
+        deadline = time.monotonic() + timeout
+        while True:
+            events = self.events()
+            if len(events) > after:
+                return events[after]
+            if time.monotonic() > deadline:
+                msg = f"no lease event after {after}: {events}"
+                raise TimeoutError(msg)
+            time.sleep(1)
+
+
+@pytest.fixture
+# The stack argument only makes the stack start first.
+def client(stack: Stack) -> Iterator[BackgroundClient]:  # ruff: ignore[unused-function-argument]
+    background = BackgroundClient()
+    yield background
+    background.stop()
 
 
 @pytest.fixture(scope="session")

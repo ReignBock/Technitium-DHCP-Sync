@@ -57,12 +57,14 @@ class ServerSettings(_Section):
 
 
 class SyncSettings(_Section):
-    """How often to sync and how the secondary scopes differ from the primary."""
+    """How often to sync, how the secondary scopes differ, and how failback behaves."""
 
     interval_seconds: float = Field(default=60, gt=0)
     offer_delay_increment_seconds: float = Field(default=2, ge=0)
     secondary_lease_time_minutes: int = Field(default=5, ge=1)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    down_check_interval_seconds: float = Field(default=10, gt=0)
+    failback_margin_seconds: float = Field(default=60, ge=0)
 
     @property
     def offer_delay_increment_ms(self) -> int:

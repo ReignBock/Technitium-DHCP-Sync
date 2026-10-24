@@ -12,17 +12,39 @@ match:
 - Each primary scope is copied field for field, with three exceptions:
   - **Offer delay:** the primary's value plus `offer_delay_increment_seconds`. While both servers are up,
     the primary answers first.
-  - **Lease time:** `secondary_lease_time_minutes` (default 5). Clients that got a lease from the secondary
-    return to the primary soon after it recovers.
+  - **Lease time:** `secondary_lease_time_minutes` (default 5). This bounds how long a client stays on
+    the secondary once failback starts (see below).
   - **Reservations:** the primary's reservations, plus one reservation for each dynamic lease on the
     primary. The Technitium API has no call that creates a dynamic lease, so a reservation is the only
     way to give a client the same address on the secondary. These entries carry the comment
     `technitium-dhcp-sync: dynamic lease`.
-- Each scope's enabled state matches the primary.
+- Each scope's enabled state matches the primary, except while the scope is on hold (see below).
 - A scope on the secondary that the primary does not have is deleted.
 
 The sync writes to the secondary only when something differs. If any read from the primary fails, the
 cycle stops before it writes anything, so a primary outage never removes the failover copy.
+
+## Failback
+
+A short lease alone does not bring clients back to the primary. A client renews directly with the server
+that issued its lease, and the secondary keeps approving those renewals while it runs. So once the primary
+is back, the sync moves clients off the secondary:
+
+1. Each cycle reads the secondary's leases. A scope is **on hold** while any of its leases, dynamic or
+   reserved, has not passed its expiry plus `failback_margin_seconds` (default 60).
+1. A scope on hold is disabled on the secondary. Its clients' renewals go unanswered, so each client
+   broadcasts, and the primary confirms the same address. This happens within one secondary lease time.
+   Clients keep their address throughout.
+1. A disabled scope renews nothing, so its lease expiries stay fixed. The hold ends on its own after the
+   last one passes, and the scope is enabled again.
+
+If the primary becomes unreachable, the sync enables every held scope at once, cancelling the hold. It
+then checks the primary every `down_check_interval_seconds` (default 10) until a cycle succeeds, and goes
+back to `interval_seconds` after that.
+
+Holds are computed from the secondary's leases, so a restart does not end one early. The primary's enabled
+flags from the last successful cycle are kept in memory only. After a restart during an outage, the sync
+enables the scopes that are on hold.
 
 ## Known limits
 
@@ -32,6 +54,9 @@ cycle stops before it writes anything, so a primary outage never removes the fai
 - Technitium attaches a scope to the network interface that has an address in the scope's subnet. The
   secondary host needs an address in every subnet it serves.
 - Renaming a scope on the primary deletes the old scope on the secondary and creates the new one.
+- "Primary reachable" means the primary's API answers. If the API answers but clients cannot reach the
+  primary's DHCP service, for example because of a broken relay or VLAN, holds still apply, and clients on
+  the secondary lose their leases.
 - The sync copies only the scope fields it knows. An integration test checks a real server's reply for
   fields it does not know. Tested with Technitium DNS Server 15.6.0.
 

@@ -1,5 +1,6 @@
 """Tests for parsing Technitium API payloads and building scopes/set parameters."""
 
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -290,8 +291,8 @@ def test_lease_parses_a_list_entry() -> None:
         "clientIdentifier": "1-00000000000a",
         "address": "192.168.1.13",
         "hostName": None,
-        "leaseObtained": "06/15/2020 16:41:46",
-        "leaseExpires": "09/25/2020 12:39:54",
+        "leaseObtained": "2026-10-24T13:13:02.4104647Z",
+        "leaseExpires": "2026-10-24T14:13:02.4614102Z",
     })
 
     assert lease == Lease(
@@ -300,4 +301,16 @@ def test_lease_parses_a_list_entry() -> None:
         hardware_address="00-00-00-00-00-0A",
         address="192.168.1.13",
         host_name=None,
+        lease_expires=datetime(2026, 10, 24, 14, 13, 2, 461410, tzinfo=UTC),
     )
+
+
+def test_lease_expiry_must_carry_a_time_zone() -> None:
+    with pytest.raises(ValidationError):
+        Lease.model_validate({
+            "scope": "Default",
+            "type": "Dynamic",
+            "hardwareAddress": "00-00-00-00-00-0A",
+            "address": "192.168.1.13",
+            "leaseExpires": "2026-10-24T14:13:02",
+        })

@@ -97,3 +97,53 @@ missing or empty.
   an address in each synced subnet.
 - Renaming a scope on the primary shows up as a delete plus a create on the secondary.
 
+
+## Failback (added 2026-10-24, after v0.1.0)
+
+### Problem
+
+A short lease on the secondary does not bring clients back to the primary. A client renews by
+unicast to the server that issued its lease, and offer delay applies only to broadcast discovers.
+While the secondary answers, the client stays on it. Confirmed on Technitium 15.6.0: with the
+primary back up and the secondary scope enabled, a forced renewal went to the secondary and
+succeeded.
+
+### Behavior confirmed on Technitium 15.6.0
+
+- A client that takes a reserved address appears in the secondary's `leases/list` as type
+  `Reserved` with an ISO 8601 `leaseExpires`.
+- A disabled scope ignores unicast renewals and broadcast discovers. The client then broadcasts,
+  and the primary confirms the same address.
+- Leases stay listed, with unchanged expiry, through `scopes/disable`, `scopes/enable`, and
+  `scopes/set`.
+
+### Design
+
+- **Hold.** While the primary is reachable, a secondary scope is *on hold* if any secondary lease
+  in it has `leaseExpires + failback_margin_seconds` in the future. A held scope is disabled on
+  the secondary, whatever the primary's enabled flag says. Its renewals go unanswered, so its
+  clients rebind to the primary within one secondary lease time.
+- **Stateless.** The hold is computed from the secondary's lease list every cycle. A disabled
+  scope never renews, so the expiries do not move, and the hold ends on its own once the last
+  lease expires plus the margin. A restart mid-hold computes the same hold on its first cycle.
+- **Primary unreachable.** The cycle stops before any write, as before. Then every disabled
+  secondary scope that the primary last had enabled is enabled again at once, cancelling its hold.
+  The primary's enabled flags from the last successful cycle are kept in memory only. With no
+  successful cycle yet, a disabled scope is enabled if it is on hold.
+- **Faster checks while down.** After the primary is found unreachable, the next cycle runs after
+  `down_check_interval_seconds` instead of `interval_seconds`, until a cycle succeeds.
+- A secondary failure is not a primary outage. It is logged and retried at the normal interval.
+
+### New settings (`[sync]`)
+
+| Key | Default | Meaning |
+|---|---|---|
+| `down_check_interval_seconds` | 10 | Time between checks while the primary is unreachable. |
+| `failback_margin_seconds` | 60 | How long a hold lasts past the last active secondary lease. |
+
+### Known limit
+
+"Reachable" means the primary's API answers. If the API answers but clients cannot reach the
+primary's DHCP service (for example a broken relay or VLAN), holds still apply, and clients on the
+secondary lose their leases. Probing DHCP itself would need raw sockets in the container and is
+left for later.

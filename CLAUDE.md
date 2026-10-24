@@ -19,8 +19,8 @@ uv run pytest -m integration --no-cov    # needs Docker
 
 ## Layout
 
-`models` (API payloads) -> `client` (HTTP) -> `planner` (pure diff) -> `sync` (one cycle) -> `runner`
-(loop) -> `cli`. `config` loads the TOML. `tests/fakes.py` is an in-memory Technitium API for unit tests.
+`models` (API payloads) -> `client` (HTTP) -> `planner` (pure diff) and `failback` (pure hold rules) ->
+`sync` (cycles and outage handling) -> `runner` (loop) -> `cli`. `config` loads the TOML. `tests/fakes.py` is an in-memory Technitium API for unit tests.
 
 ## Technitium API facts (confirmed on 15.6.0)
 
@@ -30,6 +30,11 @@ uv run pytest -m integration --no-cov    # needs Docker
   with `hostName: ""`.
 - A fresh install has a disabled `Default` scope (192.168.1.0/24).
 - Locally administered MACs (0x02 bit set) can be blocked by `blockLocallyAdministeredMacAddresses`.
+- A client renews by unicast with the server that issued its lease; offer delay does not apply. An
+  enabled secondary scope approves those renewals even with the primary up.
+- A disabled scope ignores renewals and discovers. Its leases stay listed with unchanged
+  `leaseExpires` through disable, enable, and `scopes/set`.
+- A client that takes a reservation shows in `leases/list` as type `Reserved` with an expiry.
 
 ## Environment
 
@@ -43,3 +48,5 @@ uv run pytest -m integration --no-cov    # needs Docker
 - **scope**: one DHCP address pool and its options.
 - **lease**: an address the primary handed out dynamically.
 - **reservation**: a fixed MAC-to-address entry in a scope. Every primary lease becomes one on the secondary.
+- **hold**: a secondary scope kept disabled while it still has active leases, so its clients return to
+  the primary.

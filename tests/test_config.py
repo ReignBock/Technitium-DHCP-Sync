@@ -33,6 +33,8 @@ def test_minimal_file_uses_the_documented_defaults(tmp_path: Path) -> None:
     assert settings.sync.offer_delay_increment_ms == 2000
     assert settings.sync.secondary_lease_time_minutes == 5
     assert settings.sync.log_level == "INFO"
+    assert settings.sync.down_check_interval_seconds == 10
+    assert settings.sync.failback_margin_seconds == 60
     assert settings.primary.verify_tls is True
     assert settings.primary.timeout_seconds == 10
 
@@ -57,6 +59,8 @@ interval_seconds = 15
 offer_delay_increment_seconds = 0.5
 secondary_lease_time_minutes = 2
 log_level = "DEBUG"
+down_check_interval_seconds = 4
+failback_margin_seconds = 0
 
 [primary]
 url = "https://dns1.example.com:53443"
@@ -75,6 +79,8 @@ token_env = "SECONDARY_TOKEN"
     assert settings.sync.offer_delay_increment_ms == 500
     assert settings.sync.secondary_lease_time_minutes == 2
     assert settings.sync.log_level == "DEBUG"
+    assert settings.sync.down_check_interval_seconds == 4
+    assert settings.sync.failback_margin_seconds == 0
     assert settings.primary.verify_tls is False
     assert settings.primary.timeout_seconds == 3
 
@@ -115,6 +121,8 @@ def test_unknown_keys_are_rejected(tmp_path: Path) -> None:
         "offer_delay_increment_seconds = -1",
         "secondary_lease_time_minutes = 0",
         'log_level = "LOUD"',
+        "down_check_interval_seconds = 0",
+        "failback_margin_seconds = -1",
     ],
 )
 def test_out_of_range_values_are_rejected(tmp_path: Path, sync_table: str) -> None:

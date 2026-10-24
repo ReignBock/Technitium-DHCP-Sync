@@ -6,7 +6,14 @@ from pydantic.alias_generators import to_camel
 from technitium_dhcp_sync.models import Scope
 from technitium_dhcp_sync.planner import LEASE_COMMENT
 
-from .conftest import CLIENT_MAC, PRIMARY_IP, SECONDARY_IP, Stack, request_lease
+from .conftest import (
+    CLIENT_MAC,
+    PRIMARY_IP,
+    SECONDARY_IP,
+    BackgroundClient,
+    Stack,
+    request_lease,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -149,3 +156,57 @@ def test_the_scope_model_knows_every_field_the_server_returns(stack: Stack) -> N
 
     known = {to_camel(name) for name in Scope.model_fields}
     assert set(reply) <= known
+
+
+def scope_enabled(stack: Stack, name: str) -> bool:
+    scopes = stack.secondary.call("scopes/list")["scopes"]
+    return next(scope["enabled"] is True for scope in scopes if scope["name"] == name)
+
+
+def fail_over(stack: Stack, client: BackgroundClient) -> int:
+    """Put the client on the secondary during an outage, then bring the primary back.
+
+    Returns:
+        The number of client events so far.
+    """
+    create_lab(stack)
+    assert_sync_ok(stack)
+    stack.primary.stop()
+    client.start()
+    assert client.wait_for_event(0).lease.server == SECONDARY_IP
+    stack.primary.start()
+    return len(client.events())
+
+
+def test_clients_on_the_secondary_return_to_the_primary_after_a_sync(
+    stack: Stack, client: BackgroundClient
+) -> None:
+    seen = fail_over(stack, client)
+
+    # Without a hold, a renewal goes back to the secondary, which approves it.
+    client.renew()
+    sticky = client.wait_for_event(seen)
+    assert (sticky.event, sticky.lease.server) == ("renew", SECONDARY_IP)
+
+    assert_sync_ok(stack)
+    assert not scope_enabled(stack, "Lab")
+
+    client.renew()
+    moved = client.wait_for_event(seen + 1)
+    assert moved.lease.server == PRIMARY_IP
+    assert moved.lease.ip == sticky.lease.ip
+
+
+def test_a_primary_outage_during_a_hold_enables_the_secondary_at_once(
+    stack: Stack, client: BackgroundClient
+) -> None:
+    fail_over(stack, client)
+    assert_sync_ok(stack)
+    assert not scope_enabled(stack, "Lab")
+
+    stack.primary.stop()
+    result = stack.run_sync()
+
+    assert result.returncode == 1
+    assert "enabled Lab on the secondary" in result.stderr
+    assert scope_enabled(stack, "Lab")
