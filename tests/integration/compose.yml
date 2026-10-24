@@ -43,5 +43,6 @@ services:
     mac_address: "00:16:3e:1e:00:99"
     volumes:
       - ./print-lease.sh:/usr/local/bin/print-lease:ro
+      - ./client-hook.sh:/usr/local/bin/client-hook:ro
     networks:
       dhcpnet: {ipv4_address: 172.30.0.20}
