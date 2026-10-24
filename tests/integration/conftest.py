@@ -116,25 +116,27 @@ class Stack:
     config_path: Path
 
     def run_sync(self) -> subprocess.CompletedProcess[str]:
-        """Run ``technitium-dhcp-sync --once`` as a separate process."""
-        env = {
-            **os.environ,
-            "PRIMARY_TOKEN": self.primary.token,
-            "SECONDARY_TOKEN": self.secondary.token,
-        }
+        """Run one sync cycle as a separate process.
+
+        With ``SYNC_IMAGE`` set, the cycle runs in that container image, so CI tests the image
+        it ships. Otherwise it runs ``python -m technitium_dhcp_sync`` from this checkout.
+        """
+        tokens = {"PRIMARY_TOKEN": self.primary.token, "SECONDARY_TOKEN": self.secondary.token}
+        image = os.environ.get("SYNC_IMAGE")
+        if image:
+            command = [
+                "docker", "run", "--rm", "--network", "host",
+                "-e", "PRIMARY_TOKEN", "-e", "SECONDARY_TOKEN",
+                "-v", f"{self.config_path.parent}:/config:ro",
+                image, "--config", f"/config/{self.config_path.name}", "--once",
+            ]  # fmt: skip
+        else:
+            command = [
+                sys.executable, "-m", "technitium_dhcp_sync",
+                "--config", str(self.config_path), "--once",
+            ]  # fmt: skip
         return subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "technitium_dhcp_sync",
-                "--config",
-                str(self.config_path),
-                "--once",
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            env=env,
+            command, check=False, capture_output=True, text=True, env={**os.environ, **tokens}
         )
 
 
@@ -175,6 +177,9 @@ token_env = "SECONDARY_TOKEN"
 """,
             encoding="utf-8",
         )
+        # The image runs as its own user. The file holds no secrets, so let anyone read it.
+        config_path.parent.chmod(0o755)
+        config_path.chmod(0o644)
         yield Stack(primary, secondary, config_path)
     finally:
         compose("down", "-v", check=False)
