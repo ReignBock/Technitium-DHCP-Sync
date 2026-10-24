@@ -1,5 +1,5 @@
 {
-  description = "Ansible development environemnt";
+  description = "Technitium DHCP Sync development environment";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
@@ -22,15 +22,14 @@
           buildInputs = with pkgs; [
             uv
             (mdformat.withPlugins (p: [ p.mdformat-gfm ]))
-            ruff
-            mypy
+            gh
           ];
 
           shellHook = ''
             export UV_PYTHON_PREFERENCE="managed"
 
             uv -q sync
-            source ./env/.venv/bin/activate
+            source ./.venv/bin/activate
           '';
         };
       }
