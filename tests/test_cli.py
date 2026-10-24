@@ -60,6 +60,12 @@ def test_once_exits_one_when_the_primary_is_down(servers: dict[str, FakeTechniti
     assert cli.main(["--config", "config.toml", "--once"]) == 1
 
 
+def test_once_exits_one_when_the_secondary_is_down(servers: dict[str, FakeTechnitium]) -> None:
+    servers["secondary.test"].reachable = False
+
+    assert cli.main(["--config", "config.toml", "--once"]) == 1
+
+
 def test_once_exits_one_when_an_action_fails(servers: dict[str, FakeTechnitium]) -> None:
     servers["primary.test"].add_scope({
         **MINIMAL_SCOPE,
@@ -84,11 +90,11 @@ def test_daemon_mode_loops_with_the_configured_interval(
     seen: dict[str, object] = {}
 
     def fake_run_forever(
-        cycle: Callable[[], object], *, interval_seconds: float, stop: threading.Event
+        cycle: Callable[[], float], *, error_wait_seconds: float, stop: threading.Event
     ) -> None:
-        seen["interval"] = interval_seconds
+        seen["error_wait"] = error_wait_seconds
         seen["stop"] = stop
-        cycle()
+        seen["wait"] = cycle()
 
     installed: list[threading.Event] = []
     monkeypatch.setattr(cli, "run_forever", fake_run_forever)
@@ -96,7 +102,8 @@ def test_daemon_mode_loops_with_the_configured_interval(
 
     assert cli.main(["--config", "config.toml"]) == 0
 
-    assert seen["interval"] == 30
+    assert seen["error_wait"] == 30
+    assert seen["wait"] == 30
     assert installed == [seen["stop"]]
     assert "Lab" in servers["secondary.test"].scopes
 

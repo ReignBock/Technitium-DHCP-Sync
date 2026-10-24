@@ -9,7 +9,6 @@ from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta
 
 from .models import Lease
-from .planner import ScopeState
 
 
 def scope_holds(
@@ -33,7 +32,7 @@ def scope_holds(
 
 
 def scopes_to_enable(
-    secondary: Mapping[str, ScopeState],
+    secondary_enabled: Mapping[str, bool],
     last_primary_enabled: Mapping[str, bool],
     holds: Mapping[str, datetime],
 ) -> list[str]:
@@ -48,6 +47,6 @@ def scopes_to_enable(
     """
     return [
         name
-        for name, state in secondary.items()
-        if not state.enabled and last_primary_enabled.get(name, name in holds)
+        for name, enabled in secondary_enabled.items()
+        if not enabled and last_primary_enabled.get(name, name in holds)
     ]

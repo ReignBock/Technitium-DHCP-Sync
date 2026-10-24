@@ -3,8 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 from technitium_dhcp_sync.failback import scope_holds, scopes_to_enable
-from technitium_dhcp_sync.models import Lease, LeaseType, Scope
-from technitium_dhcp_sync.planner import ScopeState
+from technitium_dhcp_sync.models import Lease, LeaseType
 
 NOW = datetime(2026, 10, 24, 14, 0, tzinfo=UTC)
 MARGIN = timedelta(seconds=60)
@@ -18,13 +17,6 @@ def lease(scope: str, expires: datetime, kind: LeaseType = LeaseType.DYNAMIC) ->
         address="10.0.0.150",
         lease_expires=expires,
     )
-
-
-def state(name: str, *, enabled: bool) -> ScopeState:
-    scope = Scope(
-        name=name, starting_address="10.0.0.1", ending_address="10.0.0.9", subnet_mask="255.0.0.0"
-    )
-    return ScopeState(scope, enabled=enabled)
 
 
 # scope_holds
@@ -77,27 +69,18 @@ def test_each_scope_gets_its_own_hold() -> None:
 
 
 def test_a_disabled_scope_the_primary_had_enabled_is_enabled() -> None:
-    secondary = {"Lab": state("Lab", enabled=False)}
-
-    assert scopes_to_enable(secondary, {"Lab": True}, holds={}) == ["Lab"]
+    assert scopes_to_enable({"Lab": False}, {"Lab": True}, holds={}) == ["Lab"]
 
 
 def test_a_scope_the_primary_had_disabled_stays_disabled_even_if_held() -> None:
-    secondary = {"Lab": state("Lab", enabled=False)}
-
-    assert scopes_to_enable(secondary, {"Lab": False}, holds={"Lab": NOW}) == []
+    assert scopes_to_enable({"Lab": False}, {"Lab": False}, holds={"Lab": NOW}) == []
 
 
 def test_an_enabled_scope_needs_nothing() -> None:
-    secondary = {"Lab": state("Lab", enabled=True)}
-
-    assert scopes_to_enable(secondary, {"Lab": True}, holds={}) == []
+    assert scopes_to_enable({"Lab": True}, {"Lab": True}, holds={}) == []
 
 
 def test_without_a_known_primary_state_held_scopes_are_enabled() -> None:
-    secondary = {
-        "Held": state("Held", enabled=False),
-        "Off": state("Off", enabled=False),
-    }
+    secondary = {"Held": False, "Off": False}
 
     assert scopes_to_enable(secondary, {}, holds={"Held": NOW}) == ["Held"]

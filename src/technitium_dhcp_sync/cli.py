@@ -4,7 +4,6 @@ Exit codes: 0 success, 1 a ``--once`` cycle failed, 2 the settings file is inval
 """
 
 import argparse
-import functools
 import logging
 import sys
 import threading
@@ -14,7 +13,7 @@ from pathlib import Path
 from .client import TechnitiumClient, TechnitiumError
 from .config import ConfigError, load_settings
 from .runner import install_signal_handlers, run_forever
-from .sync import run_cycle
+from .sync import Syncer
 
 logger = logging.getLogger(__name__)
 
@@ -61,21 +60,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         force=True,
     )
-    with (
-        TechnitiumClient.from_settings(settings.primary) as primary,
-        TechnitiumClient.from_settings(settings.secondary) as secondary,
-    ):
-        cycle = functools.partial(run_cycle, primary, secondary, settings.sync)
+    primary = TechnitiumClient.from_settings(settings.primary)
+    secondary = TechnitiumClient.from_settings(settings.secondary)
+    with Syncer(primary, secondary, settings.sync) as syncer:
         if args.once:
             try:
-                result = cycle()
+                outcome = syncer.cycle()
             except TechnitiumError:
                 logger.exception("sync cycle failed")
                 return EXIT_CYCLE_FAILED
-            return EXIT_CYCLE_FAILED if result.failures else EXIT_OK
+            return EXIT_OK if outcome.ok else EXIT_CYCLE_FAILED
 
         logger.info("syncing %s to %s", primary.base_url, secondary.base_url)
         stop = threading.Event()
         install_signal_handlers(stop)
-        run_forever(cycle, interval_seconds=settings.sync.interval_seconds, stop=stop)
+        run_forever(
+            lambda: syncer.cycle().wait_seconds,
+            error_wait_seconds=settings.sync.interval_seconds,
+            stop=stop,
+        )
     return EXIT_OK
