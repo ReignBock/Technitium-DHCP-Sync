@@ -1,5 +1,7 @@
 """Tests for the Technitium HTTP API client."""
 
+from datetime import UTC, datetime
+
 import httpx
 import pytest
 
@@ -22,8 +24,8 @@ def server() -> FakeTechnitium:
         "clientIdentifier": "1-00000000000A",
         "address": "192.168.1.13",
         "hostName": "laptop.local",
-        "leaseObtained": "06/15/2020 16:41:46",
-        "leaseExpires": "09/25/2020 12:39:54",
+        "leaseObtained": "2026-10-24T13:13:02Z",
+        "leaseExpires": "2026-10-24T14:13:02Z",
     })
     return fake
 
@@ -47,6 +49,7 @@ def test_list_leases(server: FakeTechnitium) -> None:
                 hardware_address="00-00-00-00-00-0A",
                 address="192.168.1.13",
                 host_name="laptop.local",
+                lease_expires=datetime(2026, 10, 24, 14, 13, 2, tzinfo=UTC),
             )
         ]
 

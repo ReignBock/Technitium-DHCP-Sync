@@ -9,7 +9,7 @@ from collections.abc import Iterable
 from enum import StrEnum
 from typing import Annotated
 
-from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict
+from pydantic import AfterValidator, AwareDatetime, BaseModel, BeforeValidator, ConfigDict
 from pydantic.alias_generators import to_camel
 
 _MAC_DIGITS = re.compile(r"[0-9A-F]{12}")
@@ -202,3 +202,4 @@ class Lease(ApiModel):
     hardware_address: MacAddress
     address: str
     host_name: OptionalText = None
+    lease_expires: AwareDatetime

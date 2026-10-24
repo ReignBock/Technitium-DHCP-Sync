@@ -21,6 +21,7 @@ LEASE = {
     "hardwareAddress": "00-00-00-00-00-0A",
     "address": "10.0.0.150",
     "hostName": "laptop",
+    "leaseExpires": "2026-10-24T15:00:00Z",
 }
 
 

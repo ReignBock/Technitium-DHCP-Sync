@@ -1,5 +1,6 @@
 """Tests for computing the secondary's desired state and the actions that reach it."""
 
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -18,6 +19,7 @@ from technitium_dhcp_sync.planner import (
 
 from .test_models import DOC_SCOPE, MINIMAL_SCOPE
 
+EXPIRES = datetime(2026, 10, 24, 15, 0, tzinfo=UTC)
 INCREMENT_MS = 2000
 LEASE_MINUTES = 5
 
@@ -33,6 +35,7 @@ def dynamic(mac: str, address: str, scope_name: str = "Lab", host: str | None = 
         hardware_address=mac,
         address=address,
         host_name=host,
+        lease_expires=EXPIRES,
     )
 
 
@@ -147,6 +150,7 @@ def test_reserved_type_and_other_scope_leases_are_ignored() -> None:
             type=LeaseType.RESERVED,
             hardware_address="00-00-00-00-00-01",
             address="10.0.0.101",
+            lease_expires=EXPIRES,
         ),
         dynamic("00-00-00-00-00-0B", "192.168.1.50", scope_name="Other"),
     )
