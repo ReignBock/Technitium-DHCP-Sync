@@ -9,7 +9,7 @@ from the primary to the secondary.
 Every `interval_seconds`, the sync reads every scope and lease on the primary. Then it makes the secondary
 match:
 
-- Each primary scope is copied field for field, with three exceptions:
+- Each primary scope is copied field for field, with these exceptions:
   - **Offer delay:** the primary's value plus `offer_delay_increment_seconds`. While both servers are up,
     the primary answers first.
   - **Lease time:** `secondary_lease_time_minutes` (default 5). This bounds how long a client stays on
@@ -18,6 +18,9 @@ match:
     primary. The Technitium API has no call that creates a dynamic lease, so a reservation is the only
     way to give a client the same address on the secondary. These entries carry the comment
     `technitium-dhcp-sync: dynamic lease`.
+  - **DNS updates:** "Enable DNS Updates" and "Enable DNS Overwrite For Dynamic Lease" are always off.
+    In a Technitium cluster, the servers already share DNS records. A second server writing records for
+    the same clients could conflict with them.
 - Each scope's enabled state matches the primary, except while the scope is on hold (see below).
 - A scope on the secondary that the primary does not have is deleted.
 
@@ -114,12 +117,12 @@ The container runs as uid 10001, so the settings file must be readable by that u
 
 Command-line options:
 
-| Option                  | Effect                                                                 |
-| ----------------------- | ---------------------------------------------------------------------- |
-| `--config PATH`         | Settings file. Default: `/config/config.toml`.                         |
-| `--once`                | Run one sync cycle and exit, instead of looping forever.               |
-| `--healthcheck`         | Exit `0` if the daemon had a healthy cycle recently, `1` if not.       |
-| `--heartbeat-file PATH` | Heartbeat file. Default: `/tmp/technitium-dhcp-sync.heartbeat`.        |
+| Option                  | Effect                                                           |
+| ----------------------- | ---------------------------------------------------------------- |
+| `--config PATH`         | Settings file. Default: `/config/config.toml`.                   |
+| `--once`                | Run one sync cycle and exit, instead of looping forever.         |
+| `--healthcheck`         | Exit `0` if the daemon had a healthy cycle recently, `1` if not. |
+| `--heartbeat-file PATH` | Heartbeat file. Default: `/tmp/technitium-dhcp-sync.heartbeat`.  |
 
 Exit codes: `0` success, `1` a `--once` cycle failed or `--healthcheck` found the sync unhealthy, `2` the
 settings file is invalid.
