@@ -64,11 +64,13 @@ class SecondaryOverrides:
 def desired_scope(primary: Scope, leases: Iterable[Lease], overrides: SecondaryOverrides) -> Scope:
     """Build the secondary's copy of a primary scope.
 
-    The copy matches the primary except for three fields. The offer delay grows by
+    The copy matches the primary except for these fields. The offer delay grows by
     ``overrides.offer_delay_increment_ms``, so the primary answers first while it is up. The
     lease time is ``overrides.lease_time_minutes``, which bounds how long a client stays on the
-    secondary once its scope is on hold. Each dynamic lease in the scope becomes a reservation,
-    since the API cannot create dynamic leases.
+    secondary once its scope is on hold. DNS updates and DNS overwrite are always off: in a
+    Technitium cluster the servers already share DNS records, and a second writer could
+    conflict. Each dynamic lease in the scope becomes a reservation, since the API cannot
+    create dynamic leases.
 
     Returns:
         The scope the secondary should hold.
@@ -81,6 +83,8 @@ def desired_scope(primary: Scope, leases: Iterable[Lease], overrides: SecondaryO
             "lease_time_days": days,
             "lease_time_hours": hours,
             "lease_time_minutes": minutes,
+            "dns_updates": False,
+            "dns_overwrite_for_dynamic_lease": False,
             "reserved_leases": _reservations(primary, leases),
         }
     )

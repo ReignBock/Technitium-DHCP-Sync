@@ -1,6 +1,6 @@
 [project]
 name = "technitium-dhcp-sync"
-version = "0.3.0"
+version = "0.3.1"
 description = "Mirror Technitium DHCP scopes and leases from a primary server to a failover secondary."
 readme = "README.md"
 license = "Apache-2.0"

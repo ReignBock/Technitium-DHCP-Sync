@@ -29,6 +29,8 @@ LAB = {
     "offerDelayTime": "100",
     "exclusions": "172.30.0.150|172.30.0.160",
     "dnsServers": "1.1.1.1,9.9.9.9",
+    "dnsUpdates": "true",
+    "dnsOverwriteForDynamicLease": "true",
 }
 
 
@@ -57,6 +59,8 @@ def test_sync_copies_the_scope_with_overrides_and_the_lease(stack: Stack) -> Non
         secondary["leaseTimeHours"],
         secondary["leaseTimeMinutes"],
     ) == (0, 0, 5)
+    assert (primary["dnsUpdates"], primary["dnsOverwriteForDynamicLease"]) == (True, True)
+    assert (secondary["dnsUpdates"], secondary["dnsOverwriteForDynamicLease"]) == (False, False)
     assert secondary["reservedLeases"] == [
         {
             "hostName": "",
@@ -70,6 +74,8 @@ def test_sync_copies_the_scope_with_overrides_and_the_lease(stack: Stack) -> Non
         "leaseTimeDays",
         "leaseTimeHours",
         "leaseTimeMinutes",
+        "dnsUpdates",
+        "dnsOverwriteForDynamicLease",
         "reservedLeases",
     }
     assert {k: v for k, v in secondary.items() if k not in overridden} == {

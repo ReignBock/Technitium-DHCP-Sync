@@ -44,6 +44,8 @@ Python `==3.13.*`). The remote is `git@github.com:ReignBock/Technitium-DHCP-Sync
    - `reservedLeases` = the primary's reservations, plus one reservation for each primary `Dynamic` lease in that
      scope. The key is the MAC address. A primary reservation wins over a lease with the same MAC. Lease-derived
      entries get the comment `technitium-dhcp-sync: dynamic lease`.
+   - `dnsUpdates` and `dnsOverwriteForDynamicLease` = false. In a Technitium cluster the servers already share
+     DNS records, and a second writer could conflict. Added after v0.3.0 at the user's request.
    - `enabled` mirrors the primary.
 4. Compare desired with actual through a normalized, frozen model. Call `scopes/set` only when they differ, then
    `enable` or `disable` if the flag differs.

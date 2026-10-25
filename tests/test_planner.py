@@ -75,8 +75,20 @@ def test_desired_scope_copies_every_field_except_the_overrides() -> None:
         "lease_time_days",
         "lease_time_hours",
         "lease_time_minutes",
+        "dns_updates",
+        "dns_overwrite_for_dynamic_lease",
     }
     assert result.model_dump(exclude=overridden) == primary.model_dump(exclude=overridden)
+
+
+def test_dns_updates_are_always_off_on_the_secondary() -> None:
+    # Clustered servers already share DNS records, so a second writer could conflict.
+    primary = scope(DOC_SCOPE, dns_updates=True, dns_overwrite_for_dynamic_lease=True)
+
+    result = desired(primary)
+
+    assert result.dns_updates is False
+    assert result.dns_overwrite_for_dynamic_lease is False
 
 
 @pytest.mark.parametrize(
