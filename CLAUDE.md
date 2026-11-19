@@ -12,6 +12,8 @@ uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest
 uv run pytest -m integration --no-cov    # needs Docker
 ```
 
+- Every merge into `main` releases `project.version`. Each pull request raises it in `pyproject.toml`
+  and runs `uv lock`; CI's Version job fails otherwise.
 - Work test first. Unit coverage must stay at 100% branch coverage.
 - Ruff 0.17 in preview mode wants rule names, not codes, in config and suppressions. Suppress with
   `# ruff: ignore[rule-name]`, not `# noqa`, and give the reason on the line above.

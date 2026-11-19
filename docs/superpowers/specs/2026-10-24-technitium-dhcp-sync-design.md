@@ -28,7 +28,7 @@ Python `==3.13.*`). The remote is `git@github.com:ReignBock/Technitium-DHCP-Sync
 | Run mode | Daemon loop, interval set in TOML. A `--once` flag exists for tests and debugging. |
 | Scopes only on secondary | Deleted. The secondary mirrors the primary exactly. |
 | Secondaries per instance | Exactly one. |
-| Release | PR gating on all checks. A `vX.Y.Z` tag on `main` creates a GitHub Release and pushes an image to `ghcr.io`. |
+| Release | PR gating on all checks, and each PR raises `project.version`. Every merge into `main` pushes an image to `ghcr.io`, tags `vX.Y.Z`, and creates a GitHub Release. |
 
 ## Design
 

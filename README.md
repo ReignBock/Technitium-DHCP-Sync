@@ -145,10 +145,14 @@ network. Set `SYNC_IMAGE` to an image tag to run each sync in that image instead
 
 ## Releases
 
-Pull requests into `main` must pass lint, type checks, unit tests, and integration tests. To release, set
-`project.version` in `pyproject.toml`, merge, then push a matching tag such as `v0.1.0` on `main`. The
-release workflow runs every check again, pushes the image to `ghcr.io/reignbock/technitium-dhcp-sync`, and
-creates a GitHub release.
+Every merge into `main` is a release. A pull request must pass lint, type checks, unit tests, and
+integration tests, and it must raise `project.version` above the latest `v*` tag. Raise it in
+`pyproject.toml`, then run `uv lock` to update `uv.lock`.
+
+After the merge, the release workflow runs every check again and pushes the image to
+`ghcr.io/reignbock/technitium-dhcp-sync`. Then it tags the commit `v<version>` and creates a GitHub
+release. A failed release leaves no tag. To retry one, run the Release workflow on `main` from the
+Actions tab.
 
 ## License
 

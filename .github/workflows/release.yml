@@ -1,12 +1,19 @@
 name: Release
 
-# Push a vX.Y.Z tag on a commit in main to publish that version.
+# Every merge into main releases project.version from pyproject.toml. CI's Version job makes each
+# pull request raise it. Run this workflow by hand on main to retry a failed release.
 on:
   push:
-    tags: ["v*.*.*"]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+# Releases run one at a time, in merge order.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   ci:
@@ -16,22 +23,23 @@ jobs:
   release:
     name: Publish image and release
     needs: ci
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
       packages: write
     steps:
       - uses: actions/checkout@v7.0.1
-        with:
-          fetch-depth: 0
 
-      - name: Check the tag is on main and matches the project version
+      - name: Resolve the version
+        id: version
         run: |
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
-            || { echo "::error::$GITHUB_REF_NAME is not on main"; exit 1; }
           version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
-          [ "v$version" = "$GITHUB_REF_NAME" ] \
-            || { echo "::error::tag $GITHUB_REF_NAME does not match project version $version"; exit 1; }
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
+            echo "::error::v$version is already released; a merge into main must raise project.version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v4.4.1
 
@@ -46,8 +54,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{version}},value=v${{ steps.version.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ steps.version.outputs.version }}
             type=raw,value=latest
 
       - uses: docker/build-push-action@v7.4.0
@@ -57,7 +65,18 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
+      # Tagged only after the image is pushed, so a failed release leaves no tag behind. A tag
+      # pushed with GITHUB_TOKEN starts no other workflow run.
+      - name: Tag the release commit
+        env:
+          TAG: v${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "$TAG"
+          git push origin "$TAG"
+
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
+        run: gh release create "v${{ steps.version.outputs.version }}" --verify-tag --generate-notes
