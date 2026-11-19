@@ -40,6 +40,33 @@ def health(timeout: float, want: str) -> str:
     return status.strip()
 
 
+def run_python(code: str) -> str:
+    image = os.environ["SYNC_IMAGE"]
+    return docker("run", "--rm", "--entrypoint", "python", image, "-c", code).stdout
+
+
+# Lists every module loaded from source whose bytecode file is missing.
+MODULES_WITHOUT_BYTECODE = """
+import os, sys
+import technitium_dhcp_sync.cli
+for module in list(sys.modules.values()):
+    cached = getattr(getattr(module, "__spec__", None), "cached", None)
+    if cached and not os.path.exists(cached):
+        print(module.__name__)
+"""
+
+
+def test_every_module_the_health_check_loads_ships_with_bytecode() -> None:
+    # The image user cannot write bytecode, so Python compiles a module without it on every
+    # start and tries to save it under a new temporary name. Each failed save leaves a kernel
+    # cache entry that counts against the container's memory.
+    assert run_python(MODULES_WITHOUT_BYTECODE).split() == []
+
+
+def test_python_does_not_try_to_write_bytecode() -> None:
+    assert run_python("import sys; print(sys.dont_write_bytecode)").strip() == "True"
+
+
 @pytest.fixture
 def daemon(stack: Stack) -> Iterator[None]:
     base = stack.config_path.read_text(encoding="utf-8").replace("[sync]\n", "")
