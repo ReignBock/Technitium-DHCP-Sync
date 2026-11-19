@@ -1,7 +1,8 @@
 name: Release
 
 # Every merge into main releases project.version from pyproject.toml. CI's Version job makes each
-# pull request raise it. Run this workflow by hand on main to retry a failed release.
+# pull request raise it, except one that changes only tests, which releases nothing. Run this
+# workflow by hand on main to retry a failed release.
 on:
   push:
     branches: [main]
@@ -20,26 +21,45 @@ jobs:
     name: CI
     uses: ./.github/workflows/ci.yml
 
+  version:
+    name: Resolve the version
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 2
+
+      - name: Resolve the version
+        id: version
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
+            # CI's Version job lets a change to tests alone through without a new version.
+            if ! git diff --name-only HEAD^ HEAD | grep -qv '^tests/'; then
+              echo "Only tests change, so v$version stays the latest release"
+              echo "release=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error::v$version is already released; a merge into main must raise project.version"
+            exit 1
+          fi
+          echo "release=true" >> "$GITHUB_OUTPUT"
+
   release:
     name: Publish image and release
-    needs: ci
-    if: github.ref == 'refs/heads/main'
+    needs: [ci, version]
+    if: needs.version.outputs.release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
       packages: write
     steps:
       - uses: actions/checkout@v7.0.1
-
-      - name: Resolve the version
-        id: version
-        run: |
-          version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
-          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
-            echo "::error::v$version is already released; a merge into main must raise project.version"
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v4.4.1
 
@@ -54,8 +74,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=semver,pattern={{version}},value=v${{ steps.version.outputs.version }}
-            type=semver,pattern={{major}}.{{minor}},value=v${{ steps.version.outputs.version }}
+            type=semver,pattern={{version}},value=v${{ needs.version.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ needs.version.outputs.version }}
             type=raw,value=latest
 
       - uses: docker/build-push-action@v7.4.0
@@ -69,7 +89,7 @@ jobs:
       # pushed with GITHUB_TOKEN starts no other workflow run.
       - name: Tag the release commit
         env:
-          TAG: v${{ steps.version.outputs.version }}
+          TAG: v${{ needs.version.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -79,4 +99,4 @@ jobs:
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "v${{ steps.version.outputs.version }}" --verify-tag --generate-notes
+        run: gh release create "v${{ needs.version.outputs.version }}" --verify-tag --generate-notes

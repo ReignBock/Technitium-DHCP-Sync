@@ -24,8 +24,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
       - name: Check the project version is higher than the latest release
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
         run: |
+          # A change to tests alone, such as a new Technitium test image, ships nothing to release.
+          if ! git diff --name-only "$BASE" HEAD | grep -qv '^tests/'; then
+            echo "Only tests change, so no release is needed"
+            exit 0
+          fi
           version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
           latest=$(git ls-remote --tags --refs origin 'v*' | sed 's|.*refs/tags/v||' | sort -V | tail -n 1)
           highest=$(printf '%s\n%s\n' "$latest" "$version" | sort -V | tail -n 1)
