@@ -13,7 +13,7 @@ networks:
           gateway: 172.30.0.1
 
 x-technitium: &technitium
-  image: technitium/dns-server:15.6.0
+  image: technitium/dns-server:15.6.2
   restart: "no"
 
 services:
