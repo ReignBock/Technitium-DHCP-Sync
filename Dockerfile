@@ -12,9 +12,14 @@ COPY src ./src
 RUN uv sync --locked --no-dev --no-editable
 
 FROM python:3.13.14-slim
-RUN useradd --system --uid 10001 --no-create-home dhcpsync
+# The base image ships the standard library without bytecode, and the image user cannot save
+# it. Each health check would then compile it again and leave a kernel cache entry per failed
+# save, which counts against the container's memory.
+RUN python -m compileall -q /usr/local/lib/python3.13 \
+ && useradd --system --uid 10001 --no-create-home dhcpsync
 COPY --from=build /app/.venv /app/.venv
 ENV PATH=/app/.venv/bin:$PATH \
+    PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 USER 10001
 # Passes while the daemon had a healthy cycle within health_max_age_seconds.
