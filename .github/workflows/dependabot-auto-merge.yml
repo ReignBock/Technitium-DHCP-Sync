@@ -1,0 +1,29 @@
+name: Dependabot auto-merge
+
+# Merges a Dependabot bump of the Technitium test image once the required checks pass. A failing
+# check leaves the pull request open. The merge uses GITHUB_TOKEN, so it starts no Release run: a
+# test-only change needs no release.
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: Auto-merge
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge once the required checks pass
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          files=$(gh pr diff --name-only "$PR_URL")
+          if [ "$files" != "tests/integration/compose.yml" ]; then
+            echo "Not only the test image changes; leaving the pull request for review:"
+            echo "$files"
+            exit 0
+          fi
+          gh pr merge --auto --squash "$PR_URL"

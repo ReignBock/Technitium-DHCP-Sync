@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # Test against each new Technitium release. The dependabot-auto-merge workflow merges a passing
+  # bump, and the Version job lets it through without a release because it changes only tests.
+  - package-ecosystem: docker-compose
+    directory: /tests/integration
+    schedule:
+      interval: daily
+    allow:
+      - dependency-name: technitium/dns-server
+    commit-message:
+      prefix: Test against

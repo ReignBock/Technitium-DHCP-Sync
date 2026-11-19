@@ -87,7 +87,8 @@ recovery logs once. With `log_level = "DEBUG"`, failures also log a traceback.
   primary's DHCP service, for example because of a broken relay or VLAN, holds still apply, and clients on
   the secondary lose their leases.
 - The sync copies only the scope fields it knows. An integration test checks a real server's reply for
-  fields it does not know. Tested with Technitium DNS Server 15.6.0.
+  fields it does not know. The integration tests run against the Technitium DNS Server version
+  pinned in `tests/integration/compose.yml`, and a bot moves that pin to each new release.
 
 ## Running it
 

@@ -13,7 +13,10 @@ uv run pytest -m integration --no-cov    # needs Docker
 ```
 
 - Every merge into `main` releases `project.version`. Each pull request raises it in `pyproject.toml`
-  and runs `uv lock`; CI's Version job fails otherwise.
+  and runs `uv lock`; CI's Version job fails otherwise. A pull request that changes only `tests/`
+  keeps the version and releases nothing.
+- Dependabot opens a pull request for each new `technitium/dns-server` tag in
+  `tests/integration/compose.yml`. It merges on its own once the required checks pass.
 - Work test first. Unit coverage must stay at 100% branch coverage.
 - Ruff 0.17 in preview mode wants rule names, not codes, in config and suppressions. Suppress with
   `# ruff: ignore[rule-name]`, not `# noqa`, and give the reason on the line above.
