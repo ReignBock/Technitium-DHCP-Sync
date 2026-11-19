@@ -1,9 +1,8 @@
 name: CI
 
+# Pushes to main run these checks through the release workflow.
 on:
   pull_request:
-  push:
-    branches: [main]
   workflow_call:
 
 permissions:
@@ -17,6 +16,25 @@ env:
   UV_PYTHON_PREFERENCE: managed
 
 jobs:
+  version:
+    name: Version
+    # Every merge into main releases project.version, so each pull request must raise it.
+    # On main the version is already tagged by its release, so the check would fail there.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Check the project version is higher than the latest release
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          latest=$(git ls-remote --tags --refs origin 'v*' | sed 's|.*refs/tags/v||' | sort -V | tail -n 1)
+          highest=$(printf '%s\n%s\n' "$latest" "$version" | sort -V | tail -n 1)
+          if [ "$version" = "$latest" ] || [ "$highest" != "$version" ]; then
+            echo "::error::project.version $version must be higher than the latest tag v$latest; raise it in pyproject.toml and uv.lock"
+            exit 1
+          fi
+          echo "v$version will be released on merge (latest is v${latest:-none})"
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
